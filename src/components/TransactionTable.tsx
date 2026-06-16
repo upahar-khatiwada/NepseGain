@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { ArrowUpDownIcon, PencilIcon, Trash2Icon } from "lucide-react"
+import { ArrowUpDownIcon, InfoIcon, PencilIcon, Trash2Icon } from "lucide-react"
 import { toast } from "sonner"
 import { updateTransaction, deleteTransaction } from "@/src/actions/transaction"
 import { calculateCharges } from "@/src/lib/nepse-calc"
@@ -22,7 +22,6 @@ import {
 import {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -41,11 +40,13 @@ import {
 export type TransactionRow = {
   id: string
   type: "BUY" | "SELL"
+  source: "PRIMARY" | "SECONDARY"
   shareCode: string
   shareName: string
   quantity: number
   pricePerUnit: number
   buyPricePerUnit: number | null
+  avgBuyCostPerUnit: number | null
   transactionDate: string
   daysHeld: number | null
   brokerCommission: number
@@ -58,6 +59,7 @@ export type TransactionRow = {
 
 const editSchema = z.object({
   type: z.enum(["BUY", "SELL"]),
+  source: z.enum(["PRIMARY", "SECONDARY"]).default("SECONDARY"),
   shareCode: z.string().min(1, "Required"),
   shareName: z.string().min(1, "Required"),
   quantity: z.coerce.number().positive("Must be positive"),
@@ -104,6 +106,7 @@ function EditTransactionDialog({
     resolver: zodResolver(editSchema),
     defaultValues: {
       type: "BUY",
+      source: "SECONDARY",
       shareCode: "",
       shareName: "",
       quantity: undefined,
@@ -118,6 +121,7 @@ function EditTransactionDialog({
     if (tx) {
       form.reset({
         type: tx.type,
+        source: tx.source,
         shareCode: tx.shareCode,
         shareName: tx.shareName,
         quantity: tx.quantity,
@@ -131,6 +135,7 @@ function EditTransactionDialog({
   }, [tx, form])
 
   const watchedType = form.watch("type")
+  const watchedSource = form.watch("source")
   const watchedQty = form.watch("quantity")
   const watchedPrice = form.watch("pricePerUnit")
   const watchedBuyPrice = form.watch("buyPricePerUnit")
@@ -142,6 +147,7 @@ function EditTransactionDialog({
     if (!qty || !price || isNaN(qty) || isNaN(price) || qty <= 0 || price <= 0) return null
     return calculateCharges({
       type: watchedType,
+      source: watchedType === "BUY" ? watchedSource : undefined,
       quantity: qty,
       pricePerUnit: price,
       buyPricePerUnit:
@@ -153,7 +159,7 @@ function EditTransactionDialog({
             : null
           : null,
     })
-  }, [watchedType, watchedQty, watchedPrice, watchedBuyPrice, watchedDaysHeld])
+  }, [watchedType, watchedSource, watchedQty, watchedPrice, watchedBuyPrice, watchedDaysHeld])
 
   async function onSubmit(data: EditFormData) {
     if (!tx) return
@@ -161,6 +167,7 @@ function EditTransactionDialog({
     try {
       await updateTransaction(tx.id, {
         ...data,
+        source: data.type === "BUY" ? data.source : "SECONDARY",
         buyPricePerUnit: data.type === "SELL" ? (data.buyPricePerUnit ?? null) : null,
         daysHeld: data.type === "SELL" ? (data.daysHeld ?? null) : null,
       })
@@ -220,6 +227,54 @@ function EditTransactionDialog({
                   </FormItem>
                 )}
               />
+
+              {/* Source toggle — BUY only */}
+              {watchedType === "BUY" && (
+                <FormField
+                  control={form.control}
+                  name="source"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Source</FormLabel>
+                      <FormControl>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => field.onChange("SECONDARY")}
+                            className={`flex-1 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer ${
+                              field.value === "SECONDARY"
+                                ? "border-blue-500 bg-blue-500/10 text-blue-700 dark:text-blue-400"
+                                : "border-input bg-background text-muted-foreground hover:bg-muted"
+                            }`}
+                          >
+                            Secondary Market
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => field.onChange("PRIMARY")}
+                            className={`flex-1 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer ${
+                              field.value === "PRIMARY"
+                                ? "border-purple-500 bg-purple-500/10 text-purple-700 dark:text-purple-400"
+                                : "border-input bg-background text-muted-foreground hover:bg-muted"
+                            }`}
+                          >
+                            Primary Market (IPO)
+                          </button>
+                        </div>
+                      </FormControl>
+                      {field.value === "PRIMARY" && (
+                        <div className="flex gap-2 rounded-lg border border-blue-200 bg-blue-50/50 p-2.5 text-xs text-blue-700 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-400">
+                          <InfoIcon className="size-3.5 mt-0.5 shrink-0" />
+                          <span>
+                            IPO shares are allotted at issue price. Broker commission and SEBON
+                            still apply but DP charge is waived on IPO allotment.
+                          </span>
+                        </div>
+                      )}
+                    </FormItem>
+                  )}
+                />
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <FormField
@@ -548,6 +603,7 @@ export function TransactionTable({
                 </button>
               </TableHead>
               <TableHead>Type</TableHead>
+              <TableHead>Source</TableHead>
               <TableHead>Code</TableHead>
               <TableHead>Name</TableHead>
               <TableHead className="text-right">Qty</TableHead>
@@ -571,8 +627,21 @@ export function TransactionTable({
                     <Badge variant="destructive">SELL</Badge>
                   )}
                 </TableCell>
+                <TableCell>
+                  {tx.type === "BUY" ? (
+                    tx.source === "PRIMARY" ? (
+                      <Badge className="bg-purple-500/10 text-purple-700 dark:text-purple-400 border-transparent">
+                        IPO
+                      </Badge>
+                    ) : (
+                      <Badge className="bg-blue-500/10 text-blue-700 dark:text-blue-400 border-transparent">
+                        Secondary
+                      </Badge>
+                    )
+                  ) : null}
+                </TableCell>
                 <TableCell className="font-medium">{tx.shareCode}</TableCell>
-                <TableCell className="max-w-[140px] truncate text-muted-foreground">
+                <TableCell className="max-w-35 truncate text-muted-foreground">
                   {tx.shareName}
                 </TableCell>
                 <TableCell className="text-right tabular-nums">

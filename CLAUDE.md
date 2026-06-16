@@ -62,6 +62,7 @@ NEPSE capital gain tax calculator and portfolio tracker for the Nepal Stock Exch
 │   ├── lib/
 │   │   ├── auth.ts                 # BetterAuth server config (Prisma adapter, Google OAuth)
 │   │   ├── auth-client.ts          # BetterAuth client (signIn, signOut, useSession)
+│   │   ├── cost-basis.ts           # Pure getWeightedAverageCost() — weighted avg buy cost per unit
 │   │   ├── nepse-calc.ts           # Pure calculateCharges() + formatNPR() — works on client and server; reads NEXT_PUBLIC_* env vars
 │   │   ├── pl-summary.ts           # Pure calcPortfolioPL() + calcGroupPL() — P/L aggregation helpers
 │   │   └── prisma.ts               # Singleton PrismaClient (PrismaPg pool adapter)

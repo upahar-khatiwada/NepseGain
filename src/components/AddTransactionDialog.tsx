@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { PlusIcon } from "lucide-react"
+import { InfoIcon, PlusIcon } from "lucide-react"
 import { toast } from "sonner"
 import { addTransaction } from "@/src/actions/transaction"
 import { calculateCharges } from "@/src/lib/nepse-calc"
@@ -21,7 +21,6 @@ import {
 import {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -31,6 +30,7 @@ import { Input } from "@/components/ui/input"
 
 const schema = z.object({
   type: z.enum(["BUY", "SELL"]),
+  source: z.enum(["PRIMARY", "SECONDARY"]).default("SECONDARY"),
   shareCode: z.string().min(1, "Required"),
   shareName: z.string().min(1, "Required"),
   quantity: z.coerce.number().positive("Must be positive"),
@@ -58,6 +58,7 @@ export function AddTransactionDialog({ portfolioId }: { portfolioId: string }) {
     resolver: zodResolver(schema),
     defaultValues: {
       type: "BUY",
+      source: "SECONDARY",
       shareCode: "",
       shareName: "",
       quantity: undefined,
@@ -70,6 +71,7 @@ export function AddTransactionDialog({ portfolioId }: { portfolioId: string }) {
   })
 
   const watchedType = form.watch("type")
+  const watchedSource = form.watch("source")
   const watchedQty = form.watch("quantity")
   const watchedPrice = form.watch("pricePerUnit")
   const watchedBuyPrice = form.watch("buyPricePerUnit")
@@ -81,6 +83,7 @@ export function AddTransactionDialog({ portfolioId }: { portfolioId: string }) {
     if (!qty || !price || isNaN(qty) || isNaN(price) || qty <= 0 || price <= 0) return null
     return calculateCharges({
       type: watchedType,
+      source: watchedType === "BUY" ? watchedSource : undefined,
       quantity: qty,
       pricePerUnit: price,
       buyPricePerUnit:
@@ -92,13 +95,14 @@ export function AddTransactionDialog({ portfolioId }: { portfolioId: string }) {
             : null
           : null,
     })
-  }, [watchedType, watchedQty, watchedPrice, watchedBuyPrice, watchedDaysHeld])
+  }, [watchedType, watchedSource, watchedQty, watchedPrice, watchedBuyPrice, watchedDaysHeld])
 
   async function onSubmit(data: FormData) {
     setPending(true)
     try {
       await addTransaction(portfolioId, {
         ...data,
+        source: data.type === "BUY" ? data.source : "SECONDARY",
         buyPricePerUnit: data.type === "SELL" ? (data.buyPricePerUnit ?? null) : null,
         daysHeld: data.type === "SELL" ? (data.daysHeld ?? null) : null,
       })
@@ -170,6 +174,54 @@ export function AddTransactionDialog({ portfolioId }: { portfolioId: string }) {
                     </FormItem>
                   )}
                 />
+
+                {/* Source toggle — BUY only */}
+                {watchedType === "BUY" && (
+                  <FormField
+                    control={form.control}
+                    name="source"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Source</FormLabel>
+                        <FormControl>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => field.onChange("SECONDARY")}
+                              className={`flex-1 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer ${
+                                field.value === "SECONDARY"
+                                  ? "border-blue-500 bg-blue-500/10 text-blue-700 dark:text-blue-400"
+                                  : "border-input bg-background text-muted-foreground hover:bg-muted"
+                              }`}
+                            >
+                              Secondary Market
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => field.onChange("PRIMARY")}
+                              className={`flex-1 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer ${
+                                field.value === "PRIMARY"
+                                  ? "border-purple-500 bg-purple-500/10 text-purple-700 dark:text-purple-400"
+                                  : "border-input bg-background text-muted-foreground hover:bg-muted"
+                              }`}
+                            >
+                              Primary Market (IPO)
+                            </button>
+                          </div>
+                        </FormControl>
+                        {field.value === "PRIMARY" && (
+                          <div className="flex gap-2 rounded-lg border border-blue-200 bg-blue-50/50 p-2.5 text-xs text-blue-700 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-400">
+                            <InfoIcon className="size-3.5 mt-0.5 shrink-0" />
+                            <span>
+                              IPO shares are allotted at issue price. Broker commission and SEBON
+                              still apply but DP charge is waived on IPO allotment.
+                            </span>
+                          </div>
+                        )}
+                      </FormItem>
+                    )}
+                  />
+                )}
 
                 <div className="grid grid-cols-2 gap-3">
                   <FormField

@@ -6,9 +6,11 @@ import { z } from "zod"
 import { auth } from "@/src/lib/auth"
 import { prisma } from "@/src/lib/prisma"
 import { calculateCharges } from "@/src/lib/nepse-calc"
+import { getWeightedAverageCost } from "@/src/lib/cost-basis"
 
 const transactionSchema = z.object({
   type: z.enum(["BUY", "SELL"]),
+  source: z.enum(["PRIMARY", "SECONDARY"]).default("SECONDARY"),
   shareCode: z.string().min(1, "Share code is required"),
   shareName: z.string().min(1, "Share name is required"),
   quantity: z.coerce.number().positive("Quantity must be positive"),
@@ -27,6 +29,36 @@ async function getCurrentUser() {
   return session.user
 }
 
+async function computeAvgBuyCost(
+  portfolioId: string,
+  shareCode: string,
+  excludeId?: string
+): Promise<number | null> {
+  const buys = await prisma.transaction.findMany({
+    where: {
+      portfolioId,
+      type: "BUY",
+      shareCode,
+      ...(excludeId ? { id: { not: excludeId } } : {}),
+    },
+    select: {
+      type: true,
+      shareCode: true,
+      quantity: true,
+      pricePerUnit: true,
+      brokerCommission: true,
+      dpCharge: true,
+      sebon: true,
+    },
+  })
+  if (buys.length === 0) return null
+  const avg = getWeightedAverageCost(
+    buys.map((b) => ({ ...b, type: "BUY" as const })),
+    shareCode
+  )
+  return avg === 0 ? null : avg
+}
+
 export async function addTransaction(portfolioId: string, data: TransactionInput) {
   const user = await getCurrentUser()
   const parsed = transactionSchema.parse(data)
@@ -37,11 +69,19 @@ export async function addTransaction(portfolioId: string, data: TransactionInput
   if (!portfolio) throw new Error("Portfolio not found")
 
   const isSell = parsed.type === "SELL"
+  const shareCode = parsed.shareCode.toUpperCase()
+
+  const avgBuyCostPerUnit = isSell
+    ? await computeAvgBuyCost(portfolioId, shareCode)
+    : null
+
   const charges = calculateCharges({
     type: parsed.type,
+    source: parsed.source,
     quantity: parsed.quantity,
     pricePerUnit: parsed.pricePerUnit,
     buyPricePerUnit: isSell ? (parsed.buyPricePerUnit ?? null) : null,
+    avgBuyCostPerUnit: isSell ? avgBuyCostPerUnit : null,
     daysHeld: isSell ? (parsed.daysHeld ?? null) : null,
   })
 
@@ -49,11 +89,13 @@ export async function addTransaction(portfolioId: string, data: TransactionInput
     data: {
       portfolioId,
       type: parsed.type,
-      shareCode: parsed.shareCode.toUpperCase(),
+      source: parsed.source,
+      shareCode,
       shareName: parsed.shareName,
       quantity: parsed.quantity,
       pricePerUnit: parsed.pricePerUnit,
       buyPricePerUnit: isSell ? (parsed.buyPricePerUnit ?? null) : null,
+      avgBuyCostPerUnit: isSell ? avgBuyCostPerUnit : null,
       transactionDate: new Date(parsed.transactionDate),
       daysHeld: isSell ? (parsed.daysHeld ?? null) : null,
       brokerCommission: charges.brokerCommission,
@@ -80,11 +122,19 @@ export async function updateTransaction(id: string, data: TransactionInput) {
   if (!tx || tx.portfolio.ownerId !== user.id) throw new Error("Transaction not found")
 
   const isSell = parsed.type === "SELL"
+  const shareCode = parsed.shareCode.toUpperCase()
+
+  const avgBuyCostPerUnit = isSell
+    ? await computeAvgBuyCost(tx.portfolio.id, shareCode)
+    : null
+
   const charges = calculateCharges({
     type: parsed.type,
+    source: parsed.source,
     quantity: parsed.quantity,
     pricePerUnit: parsed.pricePerUnit,
     buyPricePerUnit: isSell ? (parsed.buyPricePerUnit ?? null) : null,
+    avgBuyCostPerUnit: isSell ? avgBuyCostPerUnit : null,
     daysHeld: isSell ? (parsed.daysHeld ?? null) : null,
   })
 
@@ -92,11 +142,13 @@ export async function updateTransaction(id: string, data: TransactionInput) {
     where: { id },
     data: {
       type: parsed.type,
-      shareCode: parsed.shareCode.toUpperCase(),
+      source: parsed.source,
+      shareCode,
       shareName: parsed.shareName,
       quantity: parsed.quantity,
       pricePerUnit: parsed.pricePerUnit,
       buyPricePerUnit: isSell ? (parsed.buyPricePerUnit ?? null) : null,
+      avgBuyCostPerUnit: isSell ? avgBuyCostPerUnit : null,
       transactionDate: new Date(parsed.transactionDate),
       daysHeld: isSell ? (parsed.daysHeld ?? null) : null,
       brokerCommission: charges.brokerCommission,

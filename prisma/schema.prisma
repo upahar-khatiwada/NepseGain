@@ -95,17 +95,19 @@ model Portfolio {
 
 /// Each row = one buy or sell event for a share in a portfolio.
 model Transaction {
-  id          String          @id @default(cuid())
+  id          String            @id @default(cuid())
   portfolioId String
-  type        TransactionType // BUY | SELL
+  type        TransactionType   // BUY | SELL
+  source      TransactionSource @default(SECONDARY) // PRIMARY (IPO) or SECONDARY market
 
   // Share identification
   shareCode String // e.g. "NABIL", "SCB"
   shareName String // e.g. "Nabil Bank Limited"
 
-  quantity          Float // units bought/sold
-  pricePerUnit      Float // price in NPR per unit (sell price for SELL)
-  buyPricePerUnit   Float? // original purchase price per unit — SELL only, used for CGT on profit
+  quantity          Float  // units bought/sold
+  pricePerUnit      Float  // price in NPR per unit (sell price for SELL)
+  buyPricePerUnit   Float? // user-entered purchase price — SELL only, kept for reference
+  avgBuyCostPerUnit Float? // weighted avg buy cost per unit used for CGT (SELL only, server-computed)
 
   // Dates — used to calculate Capital Gain Tax bracket
   transactionDate DateTime // date this buy/sell happened
@@ -115,7 +117,7 @@ model Transaction {
 
   // Charges — stored so historical records are accurate even if rates change
   brokerCommission Float // calculated at save time, stored in NPR
-  dpCharge         Float // DP charge in NPR (flat per transaction)
+  dpCharge         Float // DP charge in NPR (0 for PRIMARY BUY, flat NPR 25 otherwise)
   sebon            Float // SEBON fee in NPR
   capitalGainTax   Float // CGT in NPR (0 for BUY)
 
@@ -138,4 +140,9 @@ model Transaction {
 enum TransactionType {
   BUY
   SELL
+}
+
+enum TransactionSource {
+  PRIMARY
+  SECONDARY
 }

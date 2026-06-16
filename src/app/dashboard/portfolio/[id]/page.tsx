@@ -38,11 +38,13 @@ export default async function PortfolioPage({
   const transactions: TransactionRow[] = rawTransactions.map((t) => ({
     id: t.id,
     type: t.type as "BUY" | "SELL",
+    source: t.source as "PRIMARY" | "SECONDARY",
     shareCode: t.shareCode,
     shareName: t.shareName,
     quantity: t.quantity,
     pricePerUnit: t.pricePerUnit,
     buyPricePerUnit: t.buyPricePerUnit,
+    avgBuyCostPerUnit: t.avgBuyCostPerUnit,
     transactionDate: t.transactionDate.toISOString(),
     daysHeld: t.daysHeld,
     brokerCommission: t.brokerCommission,

@@ -1,10 +1,13 @@
 export type TransactionType = "BUY" | "SELL"
+export type TransactionSource = "PRIMARY" | "SECONDARY"
 
 export interface ChargeInput {
   type: TransactionType
   quantity: number
   pricePerUnit: number
-  buyPricePerUnit?: number | null // SELL only — original purchase price for CGT on profit
+  source?: TransactionSource | null
+  buyPricePerUnit?: number | null      // user-entered buy price — SELL only, used as fallback for CGT
+  avgBuyCostPerUnit?: number | null    // server-computed weighted avg — SELL only, takes priority over buyPricePerUnit
   daysHeld?: number | null
 }
 
@@ -29,17 +32,24 @@ export function calculateCharges(input: ChargeInput): ChargeResult {
         : +process.env.NEXT_PUBLIC_BROKER_RATE_ABOVE_500K!
 
   const brokerCommission = txValue * brokerRate
-  const dpCharge = +process.env.NEXT_PUBLIC_DP_CHARGE!
+  // IPO (PRIMARY) allotments have DP charge waived
+  const dpCharge =
+    input.source === "PRIMARY" && input.type === "BUY"
+      ? 0
+      : +process.env.NEXT_PUBLIC_DP_CHARGE!
   const sebon = txValue * +process.env.NEXT_PUBLIC_SEBON_RATE!
+
+  // avgBuyCostPerUnit takes priority; fall back to user-entered buyPricePerUnit
+  const costBasis = input.avgBuyCostPerUnit ?? input.buyPricePerUnit ?? null
 
   let capitalGain = 0
   let capitalGainTax = 0
-  if (input.type === "SELL" && input.daysHeld != null && input.buyPricePerUnit != null) {
+  if (input.type === "SELL" && input.daysHeld != null && costBasis != null) {
     const cgtRate =
       input.daysHeld <= 365
         ? +process.env.NEXT_PUBLIC_CGT_SHORT_TERM!
         : +process.env.NEXT_PUBLIC_CGT_LONG_TERM!
-    capitalGain = Math.max(0, (input.pricePerUnit - input.buyPricePerUnit) * input.quantity)
+    capitalGain = Math.max(0, (input.pricePerUnit - costBasis) * input.quantity)
     capitalGainTax = capitalGain * cgtRate
   }
 
