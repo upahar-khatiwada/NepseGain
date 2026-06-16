@@ -1,0 +1,140 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String   @id @default(cuid())
+  name          String?
+  email         String   @unique
+  emailVerified Boolean  @default(false)
+  image         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  accounts Account[]
+  sessions Session[]
+
+  // App-level: this user OWNS one or more portfolio profiles
+  portfolios Portfolio[]
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  userId                String
+  accountId             String // provider's user id
+  providerId            String // e.g. "google"
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, accountId])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([identifier, value])
+}
+
+// ─── App domain tables ──────────────────────────────────────────────────────
+
+/// A "portfolio profile" represents one person's NEPSE account.
+/// The logged-in User (owner) can manage multiple portfolios
+/// (e.g. own account, spouse's account, parent's account).
+model Portfolio {
+  id          String   @id @default(cuid())
+  ownerId     String // FK → User (the Google-authenticated person)
+  name        String // e.g. "My Account", "Dad's Account"
+  description String?
+  brokerName  String? // optional: name of broker used
+  dematNumber String? // optional: DEMAT account number
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  owner        User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@index([ownerId])
+}
+
+/// Each row = one buy or sell event for a share in a portfolio.
+model Transaction {
+  id          String          @id @default(cuid())
+  portfolioId String
+  type        TransactionType // BUY | SELL
+
+  // Share identification
+  shareCode String // e.g. "NABIL", "SCB"
+  shareName String // e.g. "Nabil Bank Limited"
+
+  quantity     Float // units bought/sold
+  pricePerUnit Float // price in NPR per unit
+
+  // Dates — used to calculate Capital Gain Tax bracket
+  transactionDate DateTime // date this buy/sell happened
+  // For SELL: how many days was this lot held?
+  // (UI lets user input this directly; stored for audit)
+  daysHeld        Int? // null for BUY transactions
+
+  // Charges — stored so historical records are accurate even if rates change
+  brokerCommission Float // calculated at save time, stored in NPR
+  dpCharge         Float // DP charge in NPR (flat per transaction)
+  sebon            Float // SEBON fee in NPR
+  capitalGainTax   Float // CGT in NPR (0 for BUY)
+
+  // Derived net amount — stored for fast queries
+  // BUY:  totalCost  = (qty * price) + brokerCommission + dpCharge + sebon
+  // SELL: netProceeds = (qty * price) - brokerCommission - dpCharge - sebon - capitalGainTax
+  netAmount Float
+
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@index([portfolioId])
+  @@index([transactionDate])
+  @@index([shareCode])
+}
+
+enum TransactionType {
+  BUY
+  SELL
+}
