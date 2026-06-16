@@ -42,6 +42,7 @@ export default async function PortfolioPage({
     shareName: t.shareName,
     quantity: t.quantity,
     pricePerUnit: t.pricePerUnit,
+    buyPricePerUnit: t.buyPricePerUnit,
     transactionDate: t.transactionDate.toISOString(),
     daysHeld: t.daysHeld,
     brokerCommission: t.brokerCommission,

@@ -35,11 +35,19 @@ export function PLSummaryCard({ summary }: { summary: PLSummary }) {
         </p>
       </div>
       <div className="border-t pt-4 space-y-2.5">
-        <PLRow label="Gross P/L" value={grossPL} />
-        <PLRow label="Total Tax Paid" value={totalTax} />
-        <PLRow label="Total Commissions" value={totalCommissions} />
         <PLRow label="Total Invested" value={totalInvested} />
         <PLRow label="Total Proceeds" value={totalProceeds} />
+        <div className="flex items-center justify-between text-sm border-t pt-2.5">
+          <span className="text-muted-foreground">Net Profit / Loss</span>
+          <span className="tabular-nums font-semibold" style={netPLStyle}>
+            {formatNPR(netPL)}
+          </span>
+        </div>
+        <div className="border-t pt-2.5 space-y-2.5">
+          <PLRow label="Gross P/L (before fees)" value={grossPL} />
+          <PLRow label="Total Tax Paid" value={totalTax} />
+          <PLRow label="Total Commissions" value={totalCommissions} />
+        </div>
       </div>
     </div>
   )

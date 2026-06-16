@@ -294,16 +294,25 @@ const dpCharge = +process.env.NEXT_PUBLIC_DP_CHARGE!   // flat NPR 25, every tra
 
 ### Capital Gain Tax (SELL only)
 
+CGT is applied to the **profit only** (selling price − purchase price), not the full transaction value.
+
 ```ts
 const cgtRate =
   daysHeld <= 365
     ? +process.env.NEXT_PUBLIC_CGT_SHORT_TERM!   // 7.5%
     : +process.env.NEXT_PUBLIC_CGT_LONG_TERM!    // 5.0%
 
-const capitalGainTax = type === "SELL" ? txValue * cgtRate : 0
+// capitalGain is 0 if selling at a loss (no tax on losses)
+const capitalGain = type === "SELL" && buyPricePerUnit != null
+  ? Math.max(0, (pricePerUnit - buyPricePerUnit) * quantity)
+  : 0
+const capitalGainTax = capitalGain * cgtRate   // 0 for BUY or when no gain
 ```
 
-`daysHeld` = calendar days between the matched BUY date and the SELL date. For BUY transactions `capitalGainTax = 0` and `daysHeld` is left null.
+- `buyPricePerUnit` — the original purchase price per share, entered by the user when recording a SELL. Stored on the Transaction row as `buyPricePerUnit Float?` (null for BUY transactions).
+- `daysHeld` — calendar days between the matched BUY date and this SELL date. Null for BUY transactions.
+- If either `buyPricePerUnit` or `daysHeld` is null on a SELL, `capitalGain = 0` and `capitalGainTax = 0`.
+- `ChargeResult` now includes both `capitalGain` (the taxable profit) and `capitalGainTax` (the tax amount).
 
 ### `netAmount` derivation
 
@@ -318,7 +327,7 @@ netAmount = txValue + brokerCommission + sebon + dpCharge
 netAmount = txValue - brokerCommission - sebon - dpCharge - capitalGainTax
 ```
 
-Storing `netAmount` directly on the row means dashboard stats (`totalInvested`, `realisedPL`) can be computed with a single `SUM` — no need to re-run the formula at query time.
+Storing `netAmount` directly on the row means dashboard stats (`totalInvested`, `totalProceeds`) can be computed with a single `SUM` — no need to re-run the formula at query time.
 
 ### Accessing env vars in shared calculation code
 
@@ -355,11 +364,14 @@ Prisma client output goes to `generated/prisma/` — import from `@/generated/pr
 
 ### TransactionType enum: `BUY | SELL`
 
-### Charge fields on Transaction (stored at save time so historical records survive rate changes)
+### Key fields on Transaction (stored at save time so historical records survive rate changes)
+- `pricePerUnit` — selling price per share (for SELL) or buying price (for BUY)
+- `buyPricePerUnit Float?` — original purchase price per share; SELL only, null for BUY; used to compute capital gain
+- `daysHeld Int?` — calendar days held; SELL only, null for BUY; determines CGT rate bracket
 - `brokerCommission` — tiered by transaction value (see env vars)
 - `dpCharge` — flat NPR 25 per transaction
 - `sebon` — 0.015% of transaction value
-- `capitalGainTax` — 7.5% (≤ 365 days held) or 5% (> 365 days); 0 for BUY
+- `capitalGainTax` — CGT on profit only: `max(0, (sellPrice - buyPrice) × qty) × rate`; 0 for BUY or when selling at a loss
 - `netAmount` — derived total (stored for fast queries)
 
 ---
@@ -463,10 +475,23 @@ bunx shadcn@latest add <name>    # Add a new shadcn component
 `calculateCharges(input: ChargeInput): ChargeResult` is the single source of truth for all NEPSE fee maths. Import it on both client (live preview) and server (actions). It reads `NEXT_PUBLIC_*` env vars directly — no arguments for rates.
 
 ```ts
-import { calculateCharges } from "@/src/lib/nepse-calc"
+import { calculateCharges, formatNPR } from "@/src/lib/nepse-calc"
+
+// BUY — no buyPricePerUnit needed
 const charges = calculateCharges({ type: "BUY", quantity: 100, pricePerUnit: 1200, daysHeld: null })
-// → { txValue, brokerCommission, dpCharge, sebon, capitalGainTax, netAmount }
+// → { txValue, brokerCommission, dpCharge, sebon, capitalGain: 0, capitalGainTax: 0, netAmount }
+
+// SELL — buyPricePerUnit required for correct CGT calculation
+const charges = calculateCharges({ type: "SELL", quantity: 100, pricePerUnit: 1500, buyPricePerUnit: 1200, daysHeld: 200 })
+// → { txValue, brokerCommission, dpCharge, sebon, capitalGain: 30000, capitalGainTax: 2250, netAmount }
 ```
+
+**`ChargeInput`**: `{ type, quantity, pricePerUnit, buyPricePerUnit?, daysHeld? }`
+**`ChargeResult`**: `{ txValue, brokerCommission, dpCharge, sebon, capitalGain, capitalGainTax, netAmount }`
+
+`capitalGain` is the taxable profit — zero for BUY, zero for SELL at a loss, `(sellPrice - buyPrice) × qty` for profitable sells.
+
+`formatNPR(amount: number): string` — formats as `"NPR X,XX,XXX.XX"` using en-IN locale (2 decimal places).
 
 ### `src/actions/transaction.ts` — server actions
 
@@ -479,10 +504,13 @@ All four actions follow the same pattern as `portfolio.ts`: `"use server"` at fi
 Defined and exported from `src/components/TransactionTable.tsx`. The server page (`portfolio/[id]/page.tsx`) fetches Prisma rows and maps them to `TransactionRow`, converting `transactionDate` (`DateTime`) to an ISO string before passing as a prop:
 
 ```ts
-transactionDate: t.transactionDate.toISOString()
+transactionDate: t.transactionDate.toISOString(),
+buyPricePerUnit: t.buyPricePerUnit,  // Float? from Prisma → number | null
 ```
 
 Never pass raw Prisma `Date` objects as props to client components — they can't be serialized.
+
+`TransactionRow` includes `buyPricePerUnit: number | null`. The edit dialog re-populates it via `form.reset({ ..., buyPricePerUnit: tx.buyPricePerUnit })`.
 
 ### BUY / SELL toggle pattern
 
@@ -531,16 +559,24 @@ There is no `textarea.tsx` in `components/ui/`. Write a plain `<textarea>` style
 
 ### Live charge preview
 
-Use `form.watch()` + `useMemo` in the dialog — no effect, no debounce needed. Guard against NaN before calling `calculateCharges`:
+Use `form.watch()` + `useMemo` in the dialog — no effect, no debounce needed. Guard against NaN before calling `calculateCharges`. For SELL, pass `buyPricePerUnit` so the CGT preview is correct:
 
 ```ts
 const preview = useMemo(() => {
   const qty = Number(watchedQty)
   const price = Number(watchedPrice)
   if (!qty || !price || isNaN(qty) || isNaN(price)) return null
-  return calculateCharges({ type: watchedType, quantity: qty, pricePerUnit: price, daysHeld: ... })
-}, [watchedType, watchedQty, watchedPrice, watchedDaysHeld])
+  return calculateCharges({
+    type: watchedType,
+    quantity: qty,
+    pricePerUnit: price,
+    buyPricePerUnit: watchedType === "SELL" && watchedBuyPrice != null ? Number(watchedBuyPrice) : null,
+    daysHeld: watchedType === "SELL" ? (watchedDaysHeld != null ? Number(watchedDaysHeld) : null) : null,
+  })
+}, [watchedType, watchedQty, watchedPrice, watchedBuyPrice, watchedDaysHeld])
 ```
+
+For SELL transactions, the preview shows four charge lines: Transaction Value, Broker Commission, DP Charge, SEBON Fee, **Capital Gain** (the taxable profit), **Capital Gain Tax**, then Total Cost / Net Proceeds at the bottom.
 
 ### Edit dialog re-population
 
@@ -604,7 +640,13 @@ export function formatNPR(amount: number): string {
 Server component (no `"use client"`). Props: `{ summary: PLSummary }`.
 
 - Net P/L in `text-3xl font-bold` with inline hex color: `#16a34a` (green) / `#dc2626` (red) / `var(--muted-foreground)` (zero)
-- Sub-rows: Gross P/L, Total Tax Paid, Total Commissions, Total Invested, Total Proceeds
+- Sub-row order (designed to show context for the Net P/L figure):
+  1. Total Invested
+  2. Total Proceeds
+  3. **Net Profit / Loss** (colored, same color as header — = Proceeds − Invested, shown inline after a border-t)
+  4. Gross P/L (before fees) — in a second `border-t` group
+  5. Total Tax Paid
+  6. Total Commissions
 - Uses `formatNPR` from `@/src/lib/nepse-calc`
 
 ### `src/components/DateRangeFilter.tsx` — client filter
@@ -642,6 +684,6 @@ Server component (no `"use client"`). Props: `{ summary: PLSummary }`.
 - `calcPortfolioPL(filteredTransactions)` — no date args needed since already filtered
 - Layout order: portfolio header → `DateRangeFilter` → `PLSummaryCard` → Transactions heading + `AddTransactionDialog` + `TransactionTable`
 
-### Known TypeScript issues (pre-existing, not from this feature)
+### Known TypeScript issues (pre-existing, not from app features)
 
-`bunx tsc --noEmit` reports ~19 errors in `src/components/AddTransactionDialog.tsx` and `src/components/TransactionTable.tsx` caused by `z.coerce.number()` returning `unknown` in this zod version, which breaks the react-hook-form `Resolver`/`Control` generic. These existed before Prompt 6 and are confined to those two files.
+`bunx tsc --noEmit` reports errors in `src/components/AddTransactionDialog.tsx` and `src/components/TransactionTable.tsx` caused by `z.coerce.number()` returning `unknown` in this zod version, which breaks the react-hook-form `Resolver`/`Control` generic. Adding more `z.coerce.number()` fields to the schemas (like `buyPricePerUnit`) adds more instances of this error, but they are all the same root cause and the app works correctly at runtime.

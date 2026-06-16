@@ -103,8 +103,9 @@ model Transaction {
   shareCode String // e.g. "NABIL", "SCB"
   shareName String // e.g. "Nabil Bank Limited"
 
-  quantity     Float // units bought/sold
-  pricePerUnit Float // price in NPR per unit
+  quantity          Float // units bought/sold
+  pricePerUnit      Float // price in NPR per unit (sell price for SELL)
+  buyPricePerUnit   Float? // original purchase price per unit — SELL only, used for CGT on profit
 
   // Dates — used to calculate Capital Gain Tax bracket
   transactionDate DateTime // date this buy/sell happened

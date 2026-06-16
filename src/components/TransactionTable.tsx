@@ -45,6 +45,7 @@ export type TransactionRow = {
   shareName: string
   quantity: number
   pricePerUnit: number
+  buyPricePerUnit: number | null
   transactionDate: string
   daysHeld: number | null
   brokerCommission: number
@@ -61,6 +62,7 @@ const editSchema = z.object({
   shareName: z.string().min(1, "Required"),
   quantity: z.coerce.number().positive("Must be positive"),
   pricePerUnit: z.coerce.number().positive("Must be positive"),
+  buyPricePerUnit: z.coerce.number().positive("Must be positive").nullable().optional(),
   transactionDate: z.string().min(1, "Required"),
   daysHeld: z.coerce.number().int().nonnegative("Must be 0 or more").nullable().optional(),
   notes: z.string().optional(),
@@ -120,6 +122,7 @@ function EditTransactionDialog({
         shareName: tx.shareName,
         quantity: tx.quantity,
         pricePerUnit: tx.pricePerUnit,
+        buyPricePerUnit: tx.buyPricePerUnit,
         transactionDate: toDateInput(tx.transactionDate),
         daysHeld: tx.daysHeld,
         notes: tx.notes ?? "",
@@ -130,6 +133,7 @@ function EditTransactionDialog({
   const watchedType = form.watch("type")
   const watchedQty = form.watch("quantity")
   const watchedPrice = form.watch("pricePerUnit")
+  const watchedBuyPrice = form.watch("buyPricePerUnit")
   const watchedDaysHeld = form.watch("daysHeld")
 
   const preview = useMemo(() => {
@@ -140,6 +144,8 @@ function EditTransactionDialog({
       type: watchedType,
       quantity: qty,
       pricePerUnit: price,
+      buyPricePerUnit:
+        watchedType === "SELL" && watchedBuyPrice != null ? Number(watchedBuyPrice) : null,
       daysHeld:
         watchedType === "SELL"
           ? watchedDaysHeld != null
@@ -147,7 +153,7 @@ function EditTransactionDialog({
             : null
           : null,
     })
-  }, [watchedType, watchedQty, watchedPrice, watchedDaysHeld])
+  }, [watchedType, watchedQty, watchedPrice, watchedBuyPrice, watchedDaysHeld])
 
   async function onSubmit(data: EditFormData) {
     if (!tx) return
@@ -155,6 +161,7 @@ function EditTransactionDialog({
     try {
       await updateTransaction(tx.id, {
         ...data,
+        buyPricePerUnit: data.type === "SELL" ? (data.buyPricePerUnit ?? null) : null,
         daysHeld: data.type === "SELL" ? (data.daysHeld ?? null) : null,
       })
       toast.success("Transaction updated")
@@ -305,35 +312,58 @@ function EditTransactionDialog({
               </div>
 
               {watchedType === "SELL" && (
-                <FormField
-                  control={form.control}
-                  name="daysHeld"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Days Held</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          min="0"
-                          step="1"
-                          placeholder="365"
-                          {...field}
-                          value={field.value ?? ""}
-                          onChange={(e) =>
-                            field.onChange(
-                              e.target.value === "" ? null : e.target.valueAsNumber
-                            )
-                          }
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        Calendar days between buy date and this sell date. Used to
-                        determine CGT rate (≤ 365 days → 7.5%, &gt; 365 days → 5%).
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                <div className="grid grid-cols-2 gap-3">
+                  <FormField
+                    control={form.control}
+                    name="buyPricePerUnit"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Buy Price per Unit (NPR)</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            placeholder="1000.00"
+                            {...field}
+                            value={field.value ?? ""}
+                            onChange={(e) =>
+                              field.onChange(
+                                e.target.value === "" ? null : e.target.valueAsNumber
+                              )
+                            }
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="daysHeld"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Days Held</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="1"
+                            placeholder="365"
+                            {...field}
+                            value={field.value ?? ""}
+                            onChange={(e) =>
+                              field.onChange(
+                                e.target.value === "" ? null : e.target.valueAsNumber
+                              )
+                            }
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
               )}
 
               <FormField
@@ -377,10 +407,16 @@ function EditTransactionDialog({
                       <span className="tabular-nums">{fmtNPR(preview.sebon)}</span>
                     </div>
                     {watchedType === "SELL" && (
-                      <div className="flex justify-between">
-                        <span>Capital Gain Tax</span>
-                        <span className="tabular-nums">{fmtNPR(preview.capitalGainTax)}</span>
-                      </div>
+                      <>
+                        <div className="flex justify-between">
+                          <span>Capital Gain</span>
+                          <span className="tabular-nums">{fmtNPR(preview.capitalGain)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Capital Gain Tax</span>
+                          <span className="tabular-nums">{fmtNPR(preview.capitalGainTax)}</span>
+                        </div>
+                      </>
                     )}
                     <div className="flex justify-between border-t pt-1 font-medium text-foreground">
                       <span>{watchedType === "BUY" ? "Total Cost" : "Net Proceeds"}</span>

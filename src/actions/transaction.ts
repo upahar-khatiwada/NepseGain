@@ -13,6 +13,7 @@ const transactionSchema = z.object({
   shareName: z.string().min(1, "Share name is required"),
   quantity: z.coerce.number().positive("Quantity must be positive"),
   pricePerUnit: z.coerce.number().positive("Price must be positive"),
+  buyPricePerUnit: z.coerce.number().positive().nullable().optional(),
   transactionDate: z.string().min(1, "Date is required"),
   daysHeld: z.coerce.number().int().nonnegative().nullable().optional(),
   notes: z.string().optional(),
@@ -35,11 +36,13 @@ export async function addTransaction(portfolioId: string, data: TransactionInput
   })
   if (!portfolio) throw new Error("Portfolio not found")
 
+  const isSell = parsed.type === "SELL"
   const charges = calculateCharges({
     type: parsed.type,
     quantity: parsed.quantity,
     pricePerUnit: parsed.pricePerUnit,
-    daysHeld: parsed.type === "SELL" ? (parsed.daysHeld ?? null) : null,
+    buyPricePerUnit: isSell ? (parsed.buyPricePerUnit ?? null) : null,
+    daysHeld: isSell ? (parsed.daysHeld ?? null) : null,
   })
 
   await prisma.transaction.create({
@@ -50,8 +53,9 @@ export async function addTransaction(portfolioId: string, data: TransactionInput
       shareName: parsed.shareName,
       quantity: parsed.quantity,
       pricePerUnit: parsed.pricePerUnit,
+      buyPricePerUnit: isSell ? (parsed.buyPricePerUnit ?? null) : null,
       transactionDate: new Date(parsed.transactionDate),
-      daysHeld: parsed.type === "SELL" ? (parsed.daysHeld ?? null) : null,
+      daysHeld: isSell ? (parsed.daysHeld ?? null) : null,
       brokerCommission: charges.brokerCommission,
       dpCharge: charges.dpCharge,
       sebon: charges.sebon,
@@ -75,11 +79,13 @@ export async function updateTransaction(id: string, data: TransactionInput) {
   })
   if (!tx || tx.portfolio.ownerId !== user.id) throw new Error("Transaction not found")
 
+  const isSell = parsed.type === "SELL"
   const charges = calculateCharges({
     type: parsed.type,
     quantity: parsed.quantity,
     pricePerUnit: parsed.pricePerUnit,
-    daysHeld: parsed.type === "SELL" ? (parsed.daysHeld ?? null) : null,
+    buyPricePerUnit: isSell ? (parsed.buyPricePerUnit ?? null) : null,
+    daysHeld: isSell ? (parsed.daysHeld ?? null) : null,
   })
 
   await prisma.transaction.update({
@@ -90,8 +96,9 @@ export async function updateTransaction(id: string, data: TransactionInput) {
       shareName: parsed.shareName,
       quantity: parsed.quantity,
       pricePerUnit: parsed.pricePerUnit,
+      buyPricePerUnit: isSell ? (parsed.buyPricePerUnit ?? null) : null,
       transactionDate: new Date(parsed.transactionDate),
-      daysHeld: parsed.type === "SELL" ? (parsed.daysHeld ?? null) : null,
+      daysHeld: isSell ? (parsed.daysHeld ?? null) : null,
       brokerCommission: charges.brokerCommission,
       dpCharge: charges.dpCharge,
       sebon: charges.sebon,
