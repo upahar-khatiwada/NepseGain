@@ -29,6 +29,8 @@ NEPSE capital gain tax calculator and portfolio tracker for the Nepal Stock Exch
 ```
 .
 ├── src/
+│   ├── actions/
+│   │   └── portfolio.ts            # Server Actions: createPortfolio, updatePortfolio, deletePortfolio, getUserPortfolios
 │   ├── app/
 │   │   ├── (auth)/
 │   │   │   └── sign-in/
@@ -37,6 +39,17 @@ NEPSE capital gain tax calculator and portfolio tracker for the Nepal Stock Exch
 │   │   │   └── auth/
 │   │   │       └── [...all]/
 │   │   │           └── route.ts    # BetterAuth catch-all handler (GET/POST/PATCH/PUT/DELETE)
+│   │   ├── dashboard/
+│   │   │   ├── _components/
+│   │   │   │   ├── add-portfolio-section.tsx  # Client: portfolio cards grid + "Add Portfolio" dialog
+│   │   │   │   └── sign-out-button.tsx        # Client: calls signOut() + router.push("/sign-in")
+│   │   │   ├── portfolio/
+│   │   │   │   └── [id]/
+│   │   │   │       ├── _components/
+│   │   │   │       │   └── portfolio-actions.tsx  # Client: Edit + Delete dialogs for a portfolio
+│   │   │   │       └── page.tsx                   # Portfolio detail — header, tx list (Prompt 5), P/L (Prompt 6)
+│   │   │   ├── layout.tsx          # Server: session check, sidebar with portfolio list
+│   │   │   └── page.tsx            # Server: fetches portfolios + stats, renders AddPortfolioSection
 │   │   ├── layout.tsx              # Root layout (Geist fonts, html/body shell)
 │   │   ├── page.tsx                # Home page
 │   │   └── globals.css             # Tailwind base + shadcn CSS variables
@@ -145,6 +158,89 @@ import { Pool } from "pg"
 - `PrismaPg` constructor takes a `pg.Pool` instance — **not** an options object with `connectionString`
 - Correct pattern: `new PrismaPg(new Pool({ connectionString: ... }))`
 - Global singleton via `globalThis` to survive hot-reload in dev
+
+---
+
+## Server Actions (`src/actions/`)
+
+Server action files live in `src/actions/` and carry `"use server"` at the top of the file (not per-function). Each action that touches the DB calls `getCurrentUser()` — a local helper that fetches the session and throws `"Unauthorized"` if none:
+
+```ts
+async function getCurrentUser() {
+  const session = await auth.api.getSession({ headers: await headers() })
+  if (!session?.user) throw new Error("Unauthorized")
+  return session.user
+}
+```
+
+**Session fetching in server components and actions** — use `auth.api.getSession`:
+```ts
+import { headers } from "next/headers"
+import { auth } from "@/src/lib/auth"
+
+const session = await auth.api.getSession({ headers: await headers() })
+```
+
+**Cache invalidation** — always call `revalidatePath` with `"layout"` scope so the sidebar (rendered in the layout) also picks up changes:
+```ts
+revalidatePath("/dashboard", "layout")
+```
+
+**Do NOT call `redirect()` from a server action that is invoked from a client event handler.** The redirect throw propagates oddly in that context. Instead, return from the action and call `router.push(...)` on the client.
+
+---
+
+## Dashboard Layout Pattern
+
+`src/app/dashboard/layout.tsx` is a **server component** that:
+- Checks the real session (DB call via `auth.api.getSession`) and redirects to `/sign-in` if missing
+- Fetches the portfolio list from Prisma for the sidebar
+- Renders static sidebar structure; interactive parts (sign-out button) are isolated into separate `"use client"` components
+
+`_components/` folders inside route segments hold co-located components that are **not** routes themselves (Next.js ignores `_`-prefixed folders for routing). Client components go here.
+
+**Sidebar "Add Portfolio" link** uses `?new=1` search param:
+```tsx
+<Link href="/dashboard?new=1">Add Portfolio</Link>
+```
+The dashboard `page.tsx` reads `searchParams.new` and passes `defaultOpen` to `<AddPortfolioSection>`, which auto-opens the dialog.
+
+**`params` and `searchParams` are Promises in Next.js 16** — always `await` them:
+```tsx
+export default async function Page({ params, searchParams }: {
+  params: Promise<{ id: string }>
+  searchParams: Promise<{ new?: string }>
+}) {
+  const { id } = await params
+  const { new: openNew } = await searchParams
+}
+```
+
+---
+
+## shadcn/base-ui Patterns
+
+**`DialogClose` with `render` prop** — base-ui's Close primitive uses `render` to replace the default element:
+```tsx
+<DialogClose render={<Button variant="outline" type="button" />}>
+  Cancel
+</DialogClose>
+```
+
+**Form inside Dialog** — wrap the `<form>` tag around the entire dialog content (including `DialogHeader` and `DialogFooter`) so the submit button inside `DialogFooter` belongs to the form:
+```tsx
+<DialogContent>
+  <Form {...form}>
+    <form onSubmit={form.handleSubmit(onSubmit)}>
+      <DialogHeader><DialogTitle>…</DialogTitle></DialogHeader>
+      <div className="space-y-4 py-4">{/* fields */}</div>
+      <DialogFooter><Button type="submit">Save</Button></DialogFooter>
+    </form>
+  </Form>
+</DialogContent>
+```
+
+**`cursor-pointer` on all interactive elements** — every Button, Link, and clickable Card must have `cursor-pointer` in its className. This project enforces it explicitly because Tailwind v4's base reset may not set it by default.
 
 ---
 
@@ -261,4 +357,5 @@ bunx shadcn@latest add <name>    # Add a new shadcn component
 - **`form.tsx` was written manually** — `bunx shadcn@latest add form` hangs in this environment. If other component adds hang, write them manually following the base-nova pattern.
 - **No migrations run yet** — schema is defined but `prisma migrate dev` has not been run. Do this once before first use.
 - **Fonts**: Geist Sans and Geist Mono via `next/font/google` in `src/app/layout.tsx`.
-- **What's built so far**: auth wiring (sign-in page, route handler, proxy guard). Dashboard and all portfolio/transaction pages are yet to be built.
+- **`realisedPL` on dashboard cards** is computed as `sum(SELL netAmount)` — the net proceeds after all fees and CGT. True lot-level P/L (proceeds minus cost basis) requires lot matching and is deferred to Prompt 6's P/L summary feature.
+- **What's built so far**: auth wiring (sign-in page, route handler, proxy guard) + portfolio management (dashboard layout with sidebar, portfolio CRUD via server actions, portfolio detail page shell). Transaction list (Prompt 5) and P/L summary (Prompt 6) are yet to be built.
