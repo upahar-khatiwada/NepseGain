@@ -1,5 +1,6 @@
 "use client";
 
+import { toast } from "sonner";
 import { signIn } from "@/src/lib/auth-client";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,10 +13,14 @@ import {
 
 export default function SignInPage() {
   async function handleGoogleSignIn() {
-    await signIn.social({
-      provider: "google",
-      callbackURL: "/dashboard",
-    });
+    try {
+      await signIn.social({
+        provider: "google",
+        callbackURL: "/dashboard",
+      });
+    } catch {
+      toast.error("Sign-in failed. Please try again.");
+    }
   }
 
   return (

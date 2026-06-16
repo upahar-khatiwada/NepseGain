@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { PencilIcon, Trash2Icon } from "lucide-react"
+import { toast } from "sonner"
 import { updatePortfolio, deletePortfolio } from "@/src/actions/portfolio"
 import { Button } from "@/components/ui/button"
 import {
@@ -63,8 +64,11 @@ export function PortfolioActions({ portfolio }: { portfolio: Portfolio }) {
     setEditPending(true)
     try {
       await updatePortfolio(portfolio.id, data)
+      toast.success("Portfolio updated")
       setEditOpen(false)
       router.refresh()
+    } catch {
+      toast.error("Failed to update portfolio")
     } finally {
       setEditPending(false)
     }
@@ -74,7 +78,10 @@ export function PortfolioActions({ portfolio }: { portfolio: Portfolio }) {
     setDeletePending(true)
     try {
       await deletePortfolio(portfolio.id)
+      toast.success("Portfolio deleted")
       router.push("/dashboard")
+    } catch {
+      toast.error("Failed to delete portfolio")
     } finally {
       setDeletePending(false)
     }

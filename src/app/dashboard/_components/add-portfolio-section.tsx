@@ -7,6 +7,7 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { PlusIcon } from "lucide-react"
+import { toast } from "sonner"
 import { createPortfolio } from "@/src/actions/portfolio"
 import { Button } from "@/components/ui/button"
 import {
@@ -85,9 +86,12 @@ export function AddPortfolioSection({
     setPending(true)
     try {
       await createPortfolio(data)
+      toast.success("Portfolio created")
       form.reset()
       setOpen(false)
       router.refresh()
+    } catch {
+      toast.error("Failed to create portfolio")
     } finally {
       setPending(false)
     }

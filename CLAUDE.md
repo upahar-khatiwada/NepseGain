@@ -687,3 +687,70 @@ Server component (no `"use client"`). Props: `{ summary: PLSummary }`.
 ### Known TypeScript issues (pre-existing, not from app features)
 
 `bunx tsc --noEmit` reports errors in `src/components/AddTransactionDialog.tsx` and `src/components/TransactionTable.tsx` caused by `z.coerce.number()` returning `unknown` in this zod version, which breaks the react-hook-form `Resolver`/`Control` generic. Adding more `z.coerce.number()` fields to the schemas (like `buyPricePerUnit`) adds more instances of this error, but they are all the same root cause and the app works correctly at runtime.
+
+---
+
+## Responsive Design & Polish (added in Prompt 7)
+
+### Mobile sidebar — `components/ui/sheet.tsx`
+
+Written manually (same `@base-ui/react/dialog` primitives as `dialog.tsx`). The Sheet uses `fixed inset-y-0 left-0 h-full w-64` positioning and slide-in/out animations via `data-open:slide-in-from-left` / `data-closed:slide-out-to-left`.
+
+Exports: `Sheet`, `SheetTrigger`, `SheetClose`, `SheetPortal`, `SheetOverlay`, `SheetContent`.
+
+The `SheetTrigger` accepts a `render` prop the same way `DialogClose` does:
+
+```tsx
+<SheetTrigger render={<Button variant="ghost" size="icon-sm" className="cursor-pointer" />}>
+  <MenuIcon className="size-5" />
+</SheetTrigger>
+```
+
+### `src/app/dashboard/_components/mobile-sidebar.tsx`
+
+Client component. Receives `portfolios: Array<{id, name}>` as a prop from the server layout. Renders a hamburger button that opens the Sheet drawer containing the same nav links as the desktop sidebar.
+
+### Dashboard layout responsive structure
+
+The desktop `<aside>` is now `hidden md:flex`. On mobile, a `<header className="md:hidden ...">` renders the hamburger + logo. The content area is wrapped in `flex flex-col flex-1 min-w-0` to avoid overflow issues on narrow viewports.
+
+### TransactionTable — horizontal scroll
+
+The outer `<div>` wrapping `<Table>` now uses `overflow-x-auto rounded-xl border` so the table scrolls horizontally on small screens without breaking the border-radius.
+
+### Skeleton component — `components/ui/skeleton.tsx`
+
+Simple `animate-pulse rounded-md bg-muted` div. Used in loading pages:
+
+- `src/app/dashboard/loading.tsx` — skeleton for DateRangeFilter, PLSummaryCard, and portfolio cards grid
+- `src/app/dashboard/portfolio/[id]/loading.tsx` — skeleton for portfolio header, DateRangeFilter, PLSummaryCard, and transaction table rows
+
+These `loading.tsx` files are shown by Next.js App Router during server-side page loads and URL param navigation (e.g., date filtering), covering the PLSummaryCard loading state automatically.
+
+### Toast notifications (Sonner)
+
+The `<Toaster />` from `@/components/ui/sonner` is now mounted in `src/app/layout.tsx` (root layout), covering all routes including sign-in.
+
+Toast calls added:
+- `add-portfolio-section.tsx` — `toast.success("Portfolio created")` / `toast.error("Failed to create portfolio")`
+- `portfolio-actions.tsx` — success/error toasts for edit and delete
+- `sign-in/page.tsx` — `toast.error("Sign-in failed.")` in catch block
+- Transaction toasts were already present in `AddTransactionDialog.tsx` and `TransactionTable.tsx`
+
+### Metadata & favicon
+
+`src/app/layout.tsx` now exports:
+
+```ts
+export const metadata: Metadata = {
+  title: "NEPSE Tracker",
+  description: "NEPSE capital gain tax calculator and portfolio tracker",
+  icons: { icon: "/favicon.svg" },
+}
+```
+
+`public/favicon.svg` — simple bar-chart SVG on a blue background.
+
+### What's built so far (updated)
+
+Auth wiring + portfolio management + transaction entry and list + P/L summary and date range filter + **responsive mobile sidebar (Sheet drawer)** + **loading skeletons** + **toast notifications throughout** + **favicon and page title** + **README.md**.
