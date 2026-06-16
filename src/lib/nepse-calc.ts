@@ -46,3 +46,13 @@ export function calculateCharges(input: ChargeInput): ChargeResult {
 
   return { txValue, brokerCommission, dpCharge, sebon, capitalGainTax, netAmount }
 }
+
+export function formatNPR(amount: number): string {
+  return (
+    "NPR " +
+    amount.toLocaleString("en-IN", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })
+  )
+}

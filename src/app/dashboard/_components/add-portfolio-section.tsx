@@ -47,7 +47,7 @@ type Portfolio = {
   brokerName: string | null
   transactionCount: number
   totalInvested: number
-  realisedPL: number
+  netPL: number
 }
 
 function formatNPR(amount: number) {
@@ -143,17 +143,18 @@ export function AddPortfolioSection({
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Realized P/L</span>
+                    <span className="text-muted-foreground">Net P/L</span>
                     <span
-                      className={`font-medium tabular-nums ${
-                        p.realisedPL > 0
-                          ? "text-green-600 dark:text-green-400"
-                          : p.realisedPL < 0
-                            ? "text-destructive"
-                            : ""
-                      }`}
+                      className="font-medium tabular-nums"
+                      style={
+                        p.netPL > 0
+                          ? { color: "#16a34a" }
+                          : p.netPL < 0
+                            ? { color: "#dc2626" }
+                            : { color: "var(--muted-foreground)" }
+                      }
                     >
-                      {formatNPR(p.realisedPL)}
+                      {formatNPR(p.netPL)}
                     </span>
                   </div>
                   <div className="flex items-center justify-between">

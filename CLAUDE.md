@@ -48,7 +48,7 @@ NEPSE capital gain tax calculator and portfolio tracker for the Nepal Stock Exch
 │   │   │   │   └── [id]/
 │   │   │   │       ├── _components/
 │   │   │   │       │   └── portfolio-actions.tsx  # Client: Edit + Delete dialogs for a portfolio
-│   │   │   │       └── page.tsx                   # Portfolio detail — header, transaction list, P/L (Prompt 6)
+│   │   │   │       └── page.tsx                   # Portfolio detail — header, DateRangeFilter, PLSummaryCard, transaction list
 │   │   │   ├── layout.tsx          # Server: session check, sidebar with portfolio list
 │   │   │   └── page.tsx            # Server: fetches portfolios + stats, renders AddPortfolioSection
 │   │   ├── layout.tsx              # Root layout (Geist fonts, html/body shell)
@@ -56,11 +56,14 @@ NEPSE capital gain tax calculator and portfolio tracker for the Nepal Stock Exch
 │   │   └── globals.css             # Tailwind base + shadcn CSS variables
 │   ├── components/
 │   │   ├── AddTransactionDialog.tsx  # Client: "Add Transaction" button + dialog with live charge preview
+│   │   ├── DateRangeFilter.tsx       # Client: From/To date inputs + preset buttons; updates ?from=&to= URL params
+│   │   ├── PLSummaryCard.tsx         # Server: displays PLSummary — net P/L large text + sub-rows
 │   │   └── TransactionTable.tsx      # Client: sortable transaction table with inline Edit + Delete dialogs; exports TransactionRow type
 │   ├── lib/
 │   │   ├── auth.ts                 # BetterAuth server config (Prisma adapter, Google OAuth)
 │   │   ├── auth-client.ts          # BetterAuth client (signIn, signOut, useSession)
-│   │   ├── nepse-calc.ts           # Pure calculateCharges() — works on client and server; reads NEXT_PUBLIC_* env vars
+│   │   ├── nepse-calc.ts           # Pure calculateCharges() + formatNPR() — works on client and server; reads NEXT_PUBLIC_* env vars
+│   │   ├── pl-summary.ts           # Pure calcPortfolioPL() + calcGroupPL() — P/L aggregation helpers
 │   │   └── prisma.ts               # Singleton PrismaClient (PrismaPg pool adapter)
 │   └── proxy.ts                    # Next.js 16 Proxy — protects /dashboard/* routes
 ├── components/
@@ -448,8 +451,8 @@ bunx shadcn@latest add <name>    # Add a new shadcn component
 - **`form.tsx` was written manually** — `bunx shadcn@latest add form` hangs in this environment. If other component adds hang, write them manually following the base-nova pattern.
 - **No migrations run yet** — schema is defined but `prisma migrate dev` has not been run. Do this once before first use.
 - **Fonts**: Geist Sans and Geist Mono via `next/font/google` in `src/app/layout.tsx`.
-- **`realisedPL` on dashboard cards** is computed as `sum(SELL netAmount)` — the net proceeds after all fees and CGT. True lot-level P/L (proceeds minus cost basis) requires lot matching and is deferred to Prompt 6's P/L summary feature.
-- **What's built so far**: auth wiring (sign-in page, route handler, proxy guard) + portfolio management (dashboard layout with sidebar, portfolio CRUD via server actions) + transaction entry and list (AddTransactionDialog, TransactionTable, transaction server actions, nepse-calc). P/L summary (Prompt 6) is yet to be built.
+- **P/L coloring**: use inline `style` with exact hex colors (`#16a34a` green, `#dc2626` red) rather than Tailwind color classes — this avoids Tailwind v4 purge issues with dynamic color values.
+- **What's built so far**: auth wiring (sign-in page, route handler, proxy guard) + portfolio management (dashboard layout with sidebar, portfolio CRUD via server actions) + transaction entry and list (AddTransactionDialog, TransactionTable, transaction server actions, nepse-calc) + P/L summary and date range filter (PLSummaryCard, DateRangeFilter, pl-summary.ts, dashboard and portfolio pages updated).
 
 ---
 
@@ -556,4 +559,89 @@ Add `className="sm:max-w-lg max-h-[90vh] overflow-y-auto"` to `DialogContent` to
 ### `src/components/` vs `components/ui/`
 
 - `components/ui/` — shadcn/ui primitive components only (Button, Dialog, Input, …)
-- `src/components/` — app-specific feature components shared across pages (AddTransactionDialog, TransactionTable). Import as `@/src/components/…`
+- `src/components/` — app-specific feature components shared across pages (AddTransactionDialog, TransactionTable, PLSummaryCard, DateRangeFilter). Import as `@/src/components/…`
+
+---
+
+## P/L Summary System (added in Prompt 6)
+
+### `src/lib/pl-summary.ts` — pure P/L helpers
+
+No `"use client"` directive — safe on both server and client.
+
+```ts
+import { calcPortfolioPL, calcGroupPL } from "@/src/lib/pl-summary"
+import type { PLSummary } from "@/src/lib/pl-summary"
+```
+
+**`calcPortfolioPL(transactions, startDate?, endDate?): PLSummary`**
+
+- Accepts `TxForPL[]` where `transactionDate` is an ISO string (`.toISOString()` from Prisma)
+- Date filter compares `transactionDate.slice(0, 10)` (YYYY-MM-DD) against `startDate`/`endDate`
+- `grossPL = sum(SELL txValue) - sum(BUY txValue)` — raw price difference before fees
+- `netPL = totalProceeds - totalInvested` — using stored `netAmount`, so all fees and CGT are included
+- `totalCommissions` = broker + DP + SEBON across all transactions (BUY and SELL)
+- `totalTax` = sum of `capitalGainTax` on SELL transactions only
+- `txCount` = count of transactions that passed the date filter
+
+**`calcGroupPL(summaries: PLSummary[]): PLSummary`** — reduces an array of per-portfolio summaries into one aggregate.
+
+### `src/lib/nepse-calc.ts` — `formatNPR`
+
+Added alongside `calculateCharges`:
+
+```ts
+export function formatNPR(amount: number): string {
+  return "NPR " + amount.toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
+}
+```
+
+### `src/components/PLSummaryCard.tsx` — display component
+
+Server component (no `"use client"`). Props: `{ summary: PLSummary }`.
+
+- Net P/L in `text-3xl font-bold` with inline hex color: `#16a34a` (green) / `#dc2626` (red) / `var(--muted-foreground)` (zero)
+- Sub-rows: Gross P/L, Total Tax Paid, Total Commissions, Total Invested, Total Proceeds
+- Uses `formatNPR` from `@/src/lib/nepse-calc`
+
+### `src/components/DateRangeFilter.tsx` — client filter
+
+**`"use client"`** component. Props: `{ from?: string; to?: string }` — passed down from the server component (not read with `useSearchParams`, which would require `<Suspense>`).
+
+- Uses `useRouter` + `usePathname` only — no `useSearchParams`
+- `push(newFrom, newTo)` builds fresh `URLSearchParams` with only `from`/`to`, then calls `router.push`
+- Preset buttons compute dates relative to `new Date()` at click time:
+  - **This Month** → first day of current month → today
+  - **Last 3 Months** → `setMonth(month - 3)` → today
+  - **This Year** → Jan 1 of current year → today
+  - **All Time** → clears both params
+
+### Dashboard page changes (`src/app/dashboard/page.tsx`)
+
+- Accepts `{ new?: string; from?: string; to?: string }` in `searchParams`
+- Prisma query uses `include: { transactions: { select: { type, transactionDate, netAmount, brokerCommission, dpCharge, sebon, capitalGainTax, quantity, pricePerUnit } } }`
+- Maps `transactionDate` → `.toISOString()` before passing to `calcPortfolioPL`
+- Passes `from`/`to` as props to `<DateRangeFilter>` and `<PLSummaryCard>` is only shown when `portfolios.length > 0`
+- Portfolio cards receive `{ id, name, brokerName, transactionCount, totalInvested, netPL }` — `netPL` replaces old `realisedPL`
+
+### Portfolio page changes (`src/app/dashboard/portfolio/[id]/page.tsx`)
+
+- Accepts `{ from?: string; to?: string }` in `searchParams`
+- Fetches all transactions, maps to `TransactionRow[]` (with `.toISOString()`), then filters in JS:
+  ```ts
+  const filteredTransactions = transactions.filter((t) => {
+    const date = t.transactionDate.slice(0, 10)
+    if (from && date < from) return false
+    if (to && date > to) return false
+    return true
+  })
+  ```
+- `calcPortfolioPL(filteredTransactions)` — no date args needed since already filtered
+- Layout order: portfolio header → `DateRangeFilter` → `PLSummaryCard` → Transactions heading + `AddTransactionDialog` + `TransactionTable`
+
+### Known TypeScript issues (pre-existing, not from this feature)
+
+`bunx tsc --noEmit` reports ~19 errors in `src/components/AddTransactionDialog.tsx` and `src/components/TransactionTable.tsx` caused by `z.coerce.number()` returning `unknown` in this zod version, which breaks the react-hook-form `Resolver`/`Control` generic. These existed before Prompt 6 and are confined to those two files.

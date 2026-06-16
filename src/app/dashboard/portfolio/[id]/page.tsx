@@ -2,6 +2,9 @@ import { headers } from "next/headers"
 import { redirect, notFound } from "next/navigation"
 import { auth } from "@/src/lib/auth"
 import { prisma } from "@/src/lib/prisma"
+import { calcPortfolioPL } from "@/src/lib/pl-summary"
+import { PLSummaryCard } from "@/src/components/PLSummaryCard"
+import { DateRangeFilter } from "@/src/components/DateRangeFilter"
 import { PortfolioActions } from "./_components/portfolio-actions"
 import { AddTransactionDialog } from "@/src/components/AddTransactionDialog"
 import {
@@ -11,10 +14,13 @@ import {
 
 export default async function PortfolioPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>
+  searchParams: Promise<{ from?: string; to?: string }>
 }) {
   const { id } = await params
+  const { from, to } = await searchParams
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session) redirect("/sign-in")
 
@@ -46,9 +52,18 @@ export default async function PortfolioPage({
     notes: t.notes,
   }))
 
+  const filteredTransactions = transactions.filter((t) => {
+    const date = t.transactionDate.slice(0, 10)
+    if (from && date < from) return false
+    if (to && date > to) return false
+    return true
+  })
+
+  const plSummary = calcPortfolioPL(filteredTransactions)
+
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <div className="flex items-start justify-between gap-4 mb-8">
+    <div className="p-6 max-w-5xl mx-auto space-y-8">
+      <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold">{portfolio.name}</h1>
           {portfolio.description && (
@@ -75,28 +90,23 @@ export default async function PortfolioPage({
         />
       </div>
 
-      {/* Transactions */}
-      <div className="mb-8">
+      <DateRangeFilter from={from} to={to} />
+
+      <PLSummaryCard summary={plSummary} />
+
+      <div>
         <div className="flex items-center justify-between mb-3">
           <h2 className="font-medium">
             Transactions
-            {transactions.length > 0 && (
+            {filteredTransactions.length > 0 && (
               <span className="ml-2 text-sm font-normal text-muted-foreground">
-                ({transactions.length})
+                ({filteredTransactions.length})
               </span>
             )}
           </h2>
           <AddTransactionDialog portfolioId={id} />
         </div>
-        <TransactionTable transactions={transactions} />
-      </div>
-
-      {/* P/L summary — built in Prompt 6 */}
-      <div>
-        <h2 className="font-medium mb-3">P/L Summary</h2>
-        <div className="rounded-xl border border-dashed py-12 text-center text-sm text-muted-foreground">
-          P/L summary coming in the next step.
-        </div>
+        <TransactionTable transactions={filteredTransactions} />
       </div>
     </div>
   )
