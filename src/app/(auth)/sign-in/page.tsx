@@ -1,0 +1,41 @@
+"use client";
+
+import { signIn } from "@/src/lib/auth-client";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
+
+export default function SignInPage() {
+  async function handleGoogleSignIn() {
+    await signIn.social({
+      provider: "google",
+      callbackURL: "/dashboard",
+    });
+  }
+
+  return (
+    <main className="min-h-screen flex items-center justify-center bg-background px-4">
+      <Card className="w-full max-w-sm">
+        <CardHeader className="text-center">
+          <CardTitle className="text-2xl">NEPSE Tracker</CardTitle>
+          <CardDescription>
+            Sign in to manage your NEPSE portfolio
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button
+            className="w-full cursor-pointer"
+            onClick={handleGoogleSignIn}
+          >
+            Sign in with Google
+          </Button>
+        </CardContent>
+      </Card>
+    </main>
+  );
+}
