@@ -30,7 +30,8 @@ NEPSE capital gain tax calculator and portfolio tracker for the Nepal Stock Exch
 .
 ├── src/
 │   ├── actions/
-│   │   └── portfolio.ts            # Server Actions: createPortfolio, updatePortfolio, deletePortfolio, getUserPortfolios
+│   │   ├── portfolio.ts            # Server Actions: createPortfolio, updatePortfolio, deletePortfolio, getUserPortfolios
+│   │   └── transaction.ts          # Server Actions: addTransaction, updateTransaction, deleteTransaction, getPortfolioTransactions
 │   ├── app/
 │   │   ├── (auth)/
 │   │   │   └── sign-in/
@@ -47,15 +48,19 @@ NEPSE capital gain tax calculator and portfolio tracker for the Nepal Stock Exch
 │   │   │   │   └── [id]/
 │   │   │   │       ├── _components/
 │   │   │   │       │   └── portfolio-actions.tsx  # Client: Edit + Delete dialogs for a portfolio
-│   │   │   │       └── page.tsx                   # Portfolio detail — header, tx list (Prompt 5), P/L (Prompt 6)
+│   │   │   │       └── page.tsx                   # Portfolio detail — header, transaction list, P/L (Prompt 6)
 │   │   │   ├── layout.tsx          # Server: session check, sidebar with portfolio list
 │   │   │   └── page.tsx            # Server: fetches portfolios + stats, renders AddPortfolioSection
 │   │   ├── layout.tsx              # Root layout (Geist fonts, html/body shell)
 │   │   ├── page.tsx                # Home page
 │   │   └── globals.css             # Tailwind base + shadcn CSS variables
+│   ├── components/
+│   │   ├── AddTransactionDialog.tsx  # Client: "Add Transaction" button + dialog with live charge preview
+│   │   └── TransactionTable.tsx      # Client: sortable transaction table with inline Edit + Delete dialogs; exports TransactionRow type
 │   ├── lib/
 │   │   ├── auth.ts                 # BetterAuth server config (Prisma adapter, Google OAuth)
 │   │   ├── auth-client.ts          # BetterAuth client (signIn, signOut, useSession)
+│   │   ├── nepse-calc.ts           # Pure calculateCharges() — works on client and server; reads NEXT_PUBLIC_* env vars
 │   │   └── prisma.ts               # Singleton PrismaClient (PrismaPg pool adapter)
 │   └── proxy.ts                    # Next.js 16 Proxy — protects /dashboard/* routes
 ├── components/
@@ -244,6 +249,92 @@ export default async function Page({ params, searchParams }: {
 
 ---
 
+## NEPSE Calculation Rules
+
+All charge fields are **computed at save time** and stored on the `Transaction` row so historical records survive future rate changes. The constants come from `NEXT_PUBLIC_*` env vars (read via `process.env` on both client and server).
+
+### Transaction value (`txValue`)
+
+```ts
+const txValue = quantity * pricePerShare   // before any charges
+```
+
+### Broker commission (tiered on `txValue`)
+
+| Bracket | Rate env var | Rate |
+|---|---|---|
+| `txValue ≤ 50,000` | `NEXT_PUBLIC_BROKER_RATE_UPTO_50K` | 0.40% |
+| `50,000 < txValue ≤ 500,000` | `NEXT_PUBLIC_BROKER_RATE_50K_500K` | 0.37% |
+| `txValue > 500,000` | `NEXT_PUBLIC_BROKER_RATE_ABOVE_500K` | 0.34% |
+
+The entire `txValue` is multiplied by the single applicable rate — brackets are **not** stacked.
+
+```ts
+const rate =
+  txValue <= 50_000   ? +process.env.NEXT_PUBLIC_BROKER_RATE_UPTO_50K! :
+  txValue <= 500_000  ? +process.env.NEXT_PUBLIC_BROKER_RATE_50K_500K! :
+                        +process.env.NEXT_PUBLIC_BROKER_RATE_ABOVE_500K!
+const brokerCommission = txValue * rate
+```
+
+### SEBON fee
+
+```ts
+const sebon = txValue * +process.env.NEXT_PUBLIC_SEBON_RATE!   // 0.015%
+```
+
+### DP charge
+
+```ts
+const dpCharge = +process.env.NEXT_PUBLIC_DP_CHARGE!   // flat NPR 25, every transaction
+```
+
+### Capital Gain Tax (SELL only)
+
+```ts
+const cgtRate =
+  daysHeld <= 365
+    ? +process.env.NEXT_PUBLIC_CGT_SHORT_TERM!   // 7.5%
+    : +process.env.NEXT_PUBLIC_CGT_LONG_TERM!    // 5.0%
+
+const capitalGainTax = type === "SELL" ? txValue * cgtRate : 0
+```
+
+`daysHeld` = calendar days between the matched BUY date and the SELL date. For BUY transactions `capitalGainTax = 0` and `daysHeld` is left null.
+
+### `netAmount` derivation
+
+**BUY** — money leaving the investor's account:
+```ts
+netAmount = txValue + brokerCommission + sebon + dpCharge
+// capitalGainTax = 0 on BUY
+```
+
+**SELL** — net cash received by the investor:
+```ts
+netAmount = txValue - brokerCommission - sebon - dpCharge - capitalGainTax
+```
+
+Storing `netAmount` directly on the row means dashboard stats (`totalInvested`, `realisedPL`) can be computed with a single `SUM` — no need to re-run the formula at query time.
+
+### Accessing env vars in shared calculation code
+
+Parse once and re-use — never call `+process.env.NEXT_PUBLIC_*` inside a loop:
+
+```ts
+const RATES = {
+  brokerUpTo50k:   +process.env.NEXT_PUBLIC_BROKER_RATE_UPTO_50K!,
+  broker50kTo500k: +process.env.NEXT_PUBLIC_BROKER_RATE_50K_500K!,
+  brokerAbove500k: +process.env.NEXT_PUBLIC_BROKER_RATE_ABOVE_500K!,
+  sebon:           +process.env.NEXT_PUBLIC_SEBON_RATE!,
+  dpCharge:        +process.env.NEXT_PUBLIC_DP_CHARGE!,
+  cgtShortTerm:    +process.env.NEXT_PUBLIC_CGT_SHORT_TERM!,
+  cgtLongTerm:     +process.env.NEXT_PUBLIC_CGT_LONG_TERM!,
+}
+```
+
+---
+
 ## Database Schema (prisma/schema.prisma)
 
 Prisma client output goes to `generated/prisma/` — import from `@/generated/prisma/client`, not from `@prisma/client`.
@@ -358,4 +449,111 @@ bunx shadcn@latest add <name>    # Add a new shadcn component
 - **No migrations run yet** — schema is defined but `prisma migrate dev` has not been run. Do this once before first use.
 - **Fonts**: Geist Sans and Geist Mono via `next/font/google` in `src/app/layout.tsx`.
 - **`realisedPL` on dashboard cards** is computed as `sum(SELL netAmount)` — the net proceeds after all fees and CGT. True lot-level P/L (proceeds minus cost basis) requires lot matching and is deferred to Prompt 6's P/L summary feature.
-- **What's built so far**: auth wiring (sign-in page, route handler, proxy guard) + portfolio management (dashboard layout with sidebar, portfolio CRUD via server actions, portfolio detail page shell). Transaction list (Prompt 5) and P/L summary (Prompt 6) are yet to be built.
+- **What's built so far**: auth wiring (sign-in page, route handler, proxy guard) + portfolio management (dashboard layout with sidebar, portfolio CRUD via server actions) + transaction entry and list (AddTransactionDialog, TransactionTable, transaction server actions, nepse-calc). P/L summary (Prompt 6) is yet to be built.
+
+---
+
+## Transaction System (added in Prompt 5)
+
+### `src/lib/nepse-calc.ts` — pure calculation
+
+`calculateCharges(input: ChargeInput): ChargeResult` is the single source of truth for all NEPSE fee maths. Import it on both client (live preview) and server (actions). It reads `NEXT_PUBLIC_*` env vars directly — no arguments for rates.
+
+```ts
+import { calculateCharges } from "@/src/lib/nepse-calc"
+const charges = calculateCharges({ type: "BUY", quantity: 100, pricePerUnit: 1200, daysHeld: null })
+// → { txValue, brokerCommission, dpCharge, sebon, capitalGainTax, netAmount }
+```
+
+### `src/actions/transaction.ts` — server actions
+
+All four actions follow the same pattern as `portfolio.ts`: `"use server"` at file top, `getCurrentUser()` guard, zod parse, DB write, `revalidatePath` with `"layout"` scope on **both** the portfolio path and `/dashboard`.
+
+`addTransaction` and `updateTransaction` always call `calculateCharges` and store all computed fields — never trust client-supplied charge values.
+
+### `TransactionRow` type
+
+Defined and exported from `src/components/TransactionTable.tsx`. The server page (`portfolio/[id]/page.tsx`) fetches Prisma rows and maps them to `TransactionRow`, converting `transactionDate` (`DateTime`) to an ISO string before passing as a prop:
+
+```ts
+transactionDate: t.transactionDate.toISOString()
+```
+
+Never pass raw Prisma `Date` objects as props to client components — they can't be serialized.
+
+### BUY / SELL toggle pattern
+
+No SegmentedControl in this shadcn setup. Use two plain `<button type="button">` elements with conditional className:
+
+```tsx
+<button
+  type="button"
+  onClick={() => field.onChange("BUY")}
+  className={field.value === "BUY"
+    ? "border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 ..."
+    : "border-input bg-background text-muted-foreground hover:bg-muted ..."}
+>
+  BUY
+</button>
+```
+
+### Numeric inputs with react-hook-form
+
+Use `e.target.valueAsNumber` so the form stores a `number`, not a string. Pair with `z.coerce.number()` in the schema:
+
+```tsx
+<Input
+  type="number"
+  {...field}
+  onChange={(e) => field.onChange(e.target.valueAsNumber)}
+/>
+```
+
+For nullable numeric fields (e.g. `daysHeld`), handle the empty-string case explicitly:
+
+```tsx
+onChange={(e) => field.onChange(e.target.value === "" ? null : e.target.valueAsNumber)}
+```
+
+### Textarea (no shadcn component)
+
+There is no `textarea.tsx` in `components/ui/`. Write a plain `<textarea>` styled to match the Input:
+
+```tsx
+<textarea
+  className="w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 min-h-18 resize-none dark:bg-input/30"
+  {...field}
+/>
+```
+
+### Live charge preview
+
+Use `form.watch()` + `useMemo` in the dialog — no effect, no debounce needed. Guard against NaN before calling `calculateCharges`:
+
+```ts
+const preview = useMemo(() => {
+  const qty = Number(watchedQty)
+  const price = Number(watchedPrice)
+  if (!qty || !price || isNaN(qty) || isNaN(price)) return null
+  return calculateCharges({ type: watchedType, quantity: qty, pricePerUnit: price, daysHeld: ... })
+}, [watchedType, watchedQty, watchedPrice, watchedDaysHeld])
+```
+
+### Edit dialog re-population
+
+When reusing a single dialog component for "edit" (controlled by `tx: TransactionRow | null` state), reset the form via `useEffect`:
+
+```ts
+useEffect(() => {
+  if (tx) form.reset({ type: tx.type, shareCode: tx.shareCode, ... })
+}, [tx, form])
+```
+
+### DialogContent sizing for tall forms
+
+Add `className="sm:max-w-lg max-h-[90vh] overflow-y-auto"` to `DialogContent` to widen and allow the whole dialog to scroll when field count is high. The default is `sm:max-w-sm`; `tailwind-merge` inside `cn()` resolves the conflict correctly.
+
+### `src/components/` vs `components/ui/`
+
+- `components/ui/` — shadcn/ui primitive components only (Button, Dialog, Input, …)
+- `src/components/` — app-specific feature components shared across pages (AddTransactionDialog, TransactionTable). Import as `@/src/components/…`

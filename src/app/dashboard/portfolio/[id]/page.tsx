@@ -3,6 +3,11 @@ import { redirect, notFound } from "next/navigation"
 import { auth } from "@/src/lib/auth"
 import { prisma } from "@/src/lib/prisma"
 import { PortfolioActions } from "./_components/portfolio-actions"
+import { AddTransactionDialog } from "@/src/components/AddTransactionDialog"
+import {
+  TransactionTable,
+  type TransactionRow,
+} from "@/src/components/TransactionTable"
 
 export default async function PortfolioPage({
   params,
@@ -18,6 +23,28 @@ export default async function PortfolioPage({
   })
 
   if (!portfolio) notFound()
+
+  const rawTransactions = await prisma.transaction.findMany({
+    where: { portfolioId: id },
+    orderBy: { transactionDate: "desc" },
+  })
+
+  const transactions: TransactionRow[] = rawTransactions.map((t) => ({
+    id: t.id,
+    type: t.type as "BUY" | "SELL",
+    shareCode: t.shareCode,
+    shareName: t.shareName,
+    quantity: t.quantity,
+    pricePerUnit: t.pricePerUnit,
+    transactionDate: t.transactionDate.toISOString(),
+    daysHeld: t.daysHeld,
+    brokerCommission: t.brokerCommission,
+    dpCharge: t.dpCharge,
+    sebon: t.sebon,
+    capitalGainTax: t.capitalGainTax,
+    netAmount: t.netAmount,
+    notes: t.notes,
+  }))
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
@@ -48,14 +75,20 @@ export default async function PortfolioPage({
         />
       </div>
 
-      {/* Transaction list — built in Prompt 5 */}
-      <div className="mb-6">
+      {/* Transactions */}
+      <div className="mb-8">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="font-medium">Transactions</h2>
+          <h2 className="font-medium">
+            Transactions
+            {transactions.length > 0 && (
+              <span className="ml-2 text-sm font-normal text-muted-foreground">
+                ({transactions.length})
+              </span>
+            )}
+          </h2>
+          <AddTransactionDialog portfolioId={id} />
         </div>
-        <div className="rounded-xl border border-dashed py-12 text-center text-sm text-muted-foreground">
-          Transaction list coming in the next step.
-        </div>
+        <TransactionTable transactions={transactions} />
       </div>
 
       {/* P/L summary — built in Prompt 6 */}
