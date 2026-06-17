@@ -8,7 +8,7 @@ import { z } from "zod"
 import { ArrowUpDownIcon, InfoIcon, PencilIcon, Trash2Icon } from "lucide-react"
 import { toast } from "sonner"
 import { updateTransaction, deleteTransaction } from "@/src/actions/transaction"
-import { calculateCharges } from "@/src/lib/nepse-calc"
+import { calculateCharges, type TransactionSource } from "@/src/lib/nepse-calc"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -40,7 +40,7 @@ import {
 export type TransactionRow = {
   id: string
   type: "BUY" | "SELL"
-  source: "PRIMARY" | "SECONDARY"
+  source: TransactionSource
   shareCode: string
   shareName: string
   quantity: number
@@ -59,7 +59,7 @@ export type TransactionRow = {
 
 const editSchema = z.object({
   type: z.enum(["BUY", "SELL"]),
-  source: z.enum(["PRIMARY", "SECONDARY"]),
+  source: z.enum(["PRIMARY", "SECONDARY", "MARKET", "AUCTION", "IPO", "FPO", "RIGHT", "BONUS", "MERGER", "DEMAT"]),
   shareCode: z.string().min(1, "Required"),
   shareName: z.string().min(1, "Required"),
   quantity: z.coerce.number().positive("Must be positive"),
@@ -70,6 +70,24 @@ const editSchema = z.object({
   notes: z.string().optional(),
 })
 type EditFormData = z.infer<typeof editSchema>
+
+const SOURCE_LABEL: Record<TransactionSource, { label: string; className: string }> = {
+  PRIMARY:   { label: "IPO",       className: "bg-purple-500/10 text-purple-700 dark:text-purple-400 border-transparent" },
+  SECONDARY: { label: "Secondary", className: "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-transparent" },
+  MARKET:    { label: "Secondary", className: "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-transparent" },
+  AUCTION:   { label: "Auction",   className: "bg-blue-500/10 text-blue-700 dark:text-blue-400 border-transparent" },
+  IPO:       { label: "IPO",       className: "bg-purple-500/10 text-purple-700 dark:text-purple-400 border-transparent" },
+  FPO:       { label: "FPO",       className: "bg-purple-500/10 text-purple-700 dark:text-purple-400 border-transparent" },
+  RIGHT:     { label: "Rights",    className: "bg-indigo-500/10 text-indigo-700 border-transparent" },
+  BONUS:     { label: "Bonus",     className: "bg-emerald-500/10 text-emerald-700 border-transparent" },
+  MERGER:    { label: "Merger",    className: "bg-orange-500/10 text-orange-700 border-transparent" },
+  DEMAT:     { label: "Demat",     className: "bg-slate-500/10 text-slate-600 border-transparent" },
+}
+
+function SourceBadge({ source }: { source: TransactionSource }) {
+  const cfg = SOURCE_LABEL[source] ?? { label: source, className: "bg-slate-500/10 text-slate-600 border-transparent" }
+  return <Badge className={cfg.className}>{cfg.label}</Badge>
+}
 
 function fmtNPR(n: number) {
   return (
@@ -628,17 +646,7 @@ export function TransactionTable({
                   )}
                 </TableCell>
                 <TableCell>
-                  {tx.type === "BUY" ? (
-                    tx.source === "PRIMARY" ? (
-                      <Badge className="bg-purple-500/10 text-purple-700 dark:text-purple-400 border-transparent">
-                        IPO
-                      </Badge>
-                    ) : (
-                      <Badge className="bg-blue-500/10 text-blue-700 dark:text-blue-400 border-transparent">
-                        Secondary
-                      </Badge>
-                    )
-                  ) : null}
+                  {tx.type === "BUY" && <SourceBadge source={tx.source} />}
                 </TableCell>
                 <TableCell className="font-medium">{tx.shareCode}</TableCell>
                 <TableCell className="max-w-35 truncate text-muted-foreground">

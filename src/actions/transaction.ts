@@ -7,10 +7,12 @@ import { auth } from "@/src/lib/auth"
 import { prisma } from "@/src/lib/prisma"
 import { calculateCharges } from "@/src/lib/nepse-calc"
 import { getWeightedAverageCost } from "@/src/lib/cost-basis"
+import type { EnrichedLot } from "@/src/lib/meroshare-api"
+import { mapTransactionType } from "@/src/lib/meroshare-api"
 
 const transactionSchema = z.object({
   type: z.enum(["BUY", "SELL"]),
-  source: z.enum(["PRIMARY", "SECONDARY"]).default("SECONDARY"),
+  source: z.enum(["PRIMARY", "SECONDARY", "MARKET", "AUCTION", "IPO", "FPO", "RIGHT", "BONUS", "MERGER", "DEMAT"]).default("SECONDARY"),
   shareCode: z.string().min(1, "Share code is required"),
   shareName: z.string().min(1, "Share name is required"),
   quantity: z.coerce.number().positive("Quantity must be positive"),
@@ -177,6 +179,90 @@ export async function deleteTransaction(id: string) {
 
   revalidatePath(`/dashboard/portfolio/${tx.portfolio.id}`, "layout")
   revalidatePath("/dashboard", "layout")
+}
+
+export interface ImportLotInput extends EnrichedLot {
+  editedRate?: number | null
+  selected?: boolean
+}
+
+export async function importMeroShareLots(
+  portfolioId: string,
+  lots: ImportLotInput[]
+): Promise<{ imported: number; skipped: number; failed: string[] }> {
+  const user = await getCurrentUser()
+
+  const portfolio = await prisma.portfolio.findFirst({
+    where: { id: portfolioId, ownerId: user.id },
+  })
+  if (!portfolio) throw new Error("Portfolio not found")
+
+  let imported = 0
+  let skipped = 0
+  const failed: string[] = []
+
+  for (const lot of lots) {
+    if (lot.selected === false) continue
+
+    const shareCode = lot.scrip.toUpperCase()
+    const source = mapTransactionType(lot.transactionType)
+    const rate = lot.editedRate ?? lot.rate
+    const txDate = new Date(lot.transactionDate)
+
+    // Duplicate check: same portfolio + stock + date + quantity + source
+    const existing = await prisma.transaction.findFirst({
+      where: {
+        portfolioId,
+        shareCode,
+        transactionDate: txDate,
+        quantity: lot.quantity,
+        source,
+      },
+    })
+    if (existing) {
+      skipped++
+      continue
+    }
+
+    try {
+      const charges = calculateCharges({
+        type: "BUY",
+        source,
+        quantity: lot.quantity,
+        pricePerUnit: rate,
+      })
+
+      await prisma.transaction.create({
+        data: {
+          portfolioId,
+          type: "BUY",
+          source,
+          shareCode,
+          shareName: lot.companyName,
+          quantity: lot.quantity,
+          pricePerUnit: rate,
+          buyPricePerUnit: null,
+          avgBuyCostPerUnit: null,
+          transactionDate: txDate,
+          daysHeld: null,
+          brokerCommission: charges.brokerCommission,
+          dpCharge: charges.dpCharge,
+          sebon: charges.sebon,
+          capitalGainTax: 0,
+          netAmount: charges.netAmount,
+          notes: lot.history || null,
+          importedFrom: "MEROSHARE",
+        },
+      })
+      imported++
+    } catch {
+      failed.push(`${shareCode} ${lot.transactionDate}`)
+    }
+  }
+
+  revalidatePath(`/dashboard/portfolio/${portfolioId}`, "layout")
+  revalidatePath("/dashboard", "layout")
+  return { imported, skipped, failed }
 }
 
 export async function getPortfolioTransactions(

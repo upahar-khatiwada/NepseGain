@@ -12,11 +12,13 @@ import { PLTrendLine } from "@/src/components/charts/PLTrendLine"
 import { PortfolioPieChart } from "@/src/components/charts/PortfolioPieChart"
 import { PortfolioActions } from "./_components/portfolio-actions"
 import { AddTransactionDialog } from "@/src/components/AddTransactionDialog"
+import { MeroShareSyncDialog } from "@/src/components/MeroShareSyncDialog"
 import {
   TransactionTable,
   type TransactionRow,
 } from "@/src/components/TransactionTable"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
+import type { TransactionSource } from "@/src/lib/nepse-calc"
 
 export default async function PortfolioPage({
   params,
@@ -44,7 +46,7 @@ export default async function PortfolioPage({
   const transactions: TransactionRow[] = rawTransactions.map((t) => ({
     id: t.id,
     type: t.type as "BUY" | "SELL",
-    source: t.source as "PRIMARY" | "SECONDARY",
+    source: t.source as TransactionSource,
     shareCode: t.shareCode,
     shareName: t.shareName,
     quantity: t.quantity,
@@ -144,6 +146,10 @@ export default async function PortfolioPage({
         </TabsList>
 
         <TabsContent value="holdings" className="mt-4">
+          <div className="flex items-center justify-end gap-2 mb-3">
+            <MeroShareSyncDialog portfolioId={id} />
+            <AddTransactionDialog portfolioId={id} />
+          </div>
           {stockSummaries.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
               <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -154,10 +160,9 @@ export default async function PortfolioPage({
                 <path d="M15 35 L29 25 L43 15" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" />
               </svg>
               <p className="text-sm text-slate-500">No transactions yet. Add your first buy or sell.</p>
-              <AddTransactionDialog portfolioId={id} />
             </div>
           ) : (
-            <StockBreakdownTable summaries={stockSummaries} />
+            <StockBreakdownTable summaries={stockSummaries} portfolioId={id} />
           )}
         </TabsContent>
 

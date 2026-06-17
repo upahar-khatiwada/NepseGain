@@ -126,9 +126,10 @@ model Transaction {
   // SELL: netProceeds = (qty * price) - brokerCommission - dpCharge - sebon - capitalGainTax
   netAmount Float
 
-  notes     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  notes        String?
+  importedFrom String? // e.g. "MEROSHARE"
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
 
@@ -143,6 +144,14 @@ enum TransactionType {
 }
 
 enum TransactionSource {
-  PRIMARY
-  SECONDARY
+  PRIMARY    // legacy: IPO allotment — DP waived, broker+SEBON apply
+  SECONDARY  // legacy: secondary market trade — full charges
+  MARKET     // MeroShare: secondary market purchase
+  IPO        // MeroShare: IPO allotment — no charges
+  FPO        // MeroShare: FPO allotment — no charges
+  RIGHT      // MeroShare: rights allotment — no charges
+  BONUS      // MeroShare: bonus shares — no charges
+  MERGER     // MeroShare: merger/acquisition shares — no charges
+  DEMAT      // MeroShare: demat transfer — no charges
+  AUCTION    // MeroShare: auction purchase — full charges
 }

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/prisma";
 import { calcPortfolioPL, calcGroupPL } from "@/src/lib/pl-summary";
+import type { TransactionSource } from "@/src/lib/nepse-calc";
 import { calcStockSummaries } from "@/src/lib/stock-summary";
 import { PLSummaryCard } from "@/src/components/PLSummaryCard";
 import { DateRangeFilter } from "@/src/components/DateRangeFilter";
@@ -51,7 +52,7 @@ export default async function DashboardPage({
     const txWithIsoDate = transactions.map((t) => ({
       ...t,
       transactionDate: t.transactionDate.toISOString(),
-      source: t.source as "PRIMARY" | "SECONDARY",
+      source: t.source as TransactionSource,
       avgBuyCostPerUnit: t.avgBuyCostPerUnit,
       buyPricePerUnit: t.buyPricePerUnit,
     }));

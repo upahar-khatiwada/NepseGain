@@ -1,3 +1,4 @@
+import type { TransactionSource } from "@/src/lib/nepse-calc"
 import { getWeightedAverageCost } from "@/src/lib/cost-basis"
 
 export interface StockSummary {
@@ -11,7 +12,8 @@ export interface StockSummary {
   totalTaxPaid: number
   realisedPL: number
   avgBuyCost: number
-  sources: ("PRIMARY" | "SECONDARY")[]
+  avgBuyDate: string | null  // ISO string weighted by quantity; null if no buys
+  sources: TransactionSource[]
 }
 
 type TxForStockSummary = {
@@ -25,7 +27,8 @@ type TxForStockSummary = {
   sebon: number
   netAmount: number
   capitalGainTax: number
-  source: "PRIMARY" | "SECONDARY"
+  source: TransactionSource
+  transactionDate?: string  // ISO string; used to compute avgBuyDate
 }
 
 export function calcStockSummaries(
@@ -37,7 +40,7 @@ export function calcStockSummaries(
       shareName: string
       buys: TxForStockSummary[]
       sells: TxForStockSummary[]
-      sources: Set<"PRIMARY" | "SECONDARY">
+      sources: Set<TransactionSource>
     }
   >()
 
@@ -72,6 +75,18 @@ export function calcStockSummaries(
     const realisedPL =
       totalSold > 0 ? totalProceeds - totalSold * avgBuyCost : 0
 
+    // Weighted average buy date (by quantity)
+    let avgBuyDate: string | null = null
+    const buysWithDate = buys.filter((b) => b.transactionDate)
+    if (buysWithDate.length > 0 && totalBought > 0) {
+      const weightedMs = buysWithDate.reduce(
+        (sum, b) => sum + new Date(b.transactionDate!).getTime() * b.quantity,
+        0
+      )
+      const totalQtyWithDate = buysWithDate.reduce((sum, b) => sum + b.quantity, 0)
+      avgBuyDate = new Date(weightedMs / totalQtyWithDate).toISOString()
+    }
+
     summaries.push({
       shareCode,
       shareName,
@@ -83,6 +98,7 @@ export function calcStockSummaries(
       totalTaxPaid,
       realisedPL,
       avgBuyCost,
+      avgBuyDate,
       sources: Array.from(sources),
     })
   }
