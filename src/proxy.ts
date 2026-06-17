@@ -8,7 +8,9 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL("/sign-in", request.url));
   }
 
-  const sessionToken = request.cookies.get("better-auth.session_token");
+  const sessionToken =
+    request.cookies.get("better-auth.session_token") ??
+    request.cookies.get("__Secure-better-auth.session_token");
 
   if (!sessionToken) {
     const signInUrl = new URL("/sign-in", request.url);
@@ -20,6 +22,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: "/(.*)",
-  // matcher: ["/dashboard/:path*"],
+  matcher: ["/", "/dashboard/:path*"],
 };
