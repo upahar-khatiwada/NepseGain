@@ -1,6 +1,13 @@
 import type { TransactionSource } from "@/src/lib/nepse-calc"
 import { getWeightedAverageCost } from "@/src/lib/cost-basis"
 
+export interface BuyBreakdownEntry {
+  source: TransactionSource
+  quantity: number
+  avgPrice: number    // raw weighted avg price per unit for this source — no fees
+  totalValue: number  // quantity × avgPrice (raw)
+}
+
 export interface StockSummary {
   shareCode: string
   shareName: string
@@ -16,6 +23,7 @@ export interface StockSummary {
   avgBuyDate: string | null   // ISO string weighted by quantity; null if no buys
   remainingValue: number      // remainingUnits × avgBuyPrice — capital still tied up, unsold
   sources: TransactionSource[]
+  buyBreakdown: BuyBreakdownEntry[]  // per-source quantity/price split — explains a blended avgBuyPrice
 }
 
 type TxForStockSummary = {
@@ -79,6 +87,24 @@ export function calcStockSummaries(
       totalSold > 0 ? totalProceeds - totalSold * avgBuyCost : 0
     const remainingValue = remainingUnits > 0 ? remainingUnits * avgBuyPrice : 0
 
+    // Per-source quantity/price split — lets the UI explain a blended avgBuyPrice
+    // (e.g. a real secondary-market purchase plus several free/cheap bonus lots)
+    const bySource = new Map<TransactionSource, { quantity: number; value: number }>()
+    for (const b of buys) {
+      const entry = bySource.get(b.source) ?? { quantity: 0, value: 0 }
+      entry.quantity += b.quantity
+      entry.value += b.quantity * b.pricePerUnit
+      bySource.set(b.source, entry)
+    }
+    const buyBreakdown: BuyBreakdownEntry[] = Array.from(bySource.entries())
+      .map(([source, { quantity, value }]) => ({
+        source,
+        quantity,
+        avgPrice: quantity > 0 ? value / quantity : 0,
+        totalValue: value,
+      }))
+      .sort((a, b) => b.quantity - a.quantity)
+
     // Weighted average buy date (by quantity)
     let avgBuyDate: string | null = null
     const buysWithDate = buys.filter((b) => b.transactionDate)
@@ -106,6 +132,7 @@ export function calcStockSummaries(
       avgBuyDate,
       remainingValue,
       sources: Array.from(sources),
+      buyBreakdown,
     })
   }
 

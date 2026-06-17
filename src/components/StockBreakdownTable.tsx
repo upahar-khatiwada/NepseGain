@@ -1,7 +1,7 @@
 "use client"
 
-import { useMemo, useState } from "react"
-import { ArrowUpDownIcon, ChevronDownIcon, PencilIcon, Trash2Icon } from "lucide-react"
+import { Fragment, useMemo, useState } from "react"
+import { ArrowUpDownIcon, ChevronDownIcon, ChevronRightIcon, Layers2Icon, PencilIcon, Trash2Icon } from "lucide-react"
 import type { StockSummary } from "@/src/lib/stock-summary"
 import type { TransactionSource } from "@/src/lib/nepse-calc"
 import { formatNPR } from "@/src/lib/nepse-calc"
@@ -58,115 +58,190 @@ function SourceBadges({ sources }: { sources: TransactionSource[] }) {
 
 type SortKey = "realisedPL" | "shareCode" | "remainingUnits" | "totalBought"
 
+function BuyBreakdownRow({ stock, colSpan }: { stock: StockSummary; colSpan: number }) {
+  return (
+    <TableRow className="bg-muted/30 hover:bg-muted/30">
+      <TableCell colSpan={colSpan} className="py-3">
+        <p className="text-xs text-muted-foreground mb-2">
+          Buy Price ({formatNPR(stock.avgBuyPrice)}) is blended across {stock.buyBreakdown.length} sources for {stock.totalBought.toLocaleString("en-IN")} units total:
+        </p>
+        <div className="overflow-x-auto rounded-lg border bg-background">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-left text-muted-foreground border-b">
+                <th className="px-3 py-1.5 font-medium">Source</th>
+                <th className="px-3 py-1.5 font-medium text-right">Units</th>
+                <th className="px-3 py-1.5 font-medium text-right">Price / Unit</th>
+                <th className="px-3 py-1.5 font-medium text-right">Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stock.buyBreakdown.map((b) => {
+                const cfg = SOURCE_BADGE[b.source] ?? { label: b.source, className: "bg-slate-500/10 text-slate-600 border-transparent" }
+                return (
+                  <tr key={b.source} className="border-b last:border-0">
+                    <td className="px-3 py-1.5">
+                      <Badge className={cfg.className}>{cfg.label}</Badge>
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{b.quantity.toLocaleString("en-IN")}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{formatNPR(b.avgPrice)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{formatNPR(b.totalValue)}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </TableCell>
+    </TableRow>
+  )
+}
+
 function StockRows({
   rows,
   onSell,
   onEdit,
   portfolioId,
   hasTransactions,
+  expandedCodes,
+  onToggleExpand,
+  colSpan,
 }: {
   rows: StockSummary[]
   onSell: (s: StockSummary) => void
   onEdit: (s: StockSummary) => void
   portfolioId?: string
   hasTransactions: boolean
+  expandedCodes: Set<string>
+  onToggleExpand: (code: string) => void
+  colSpan: number
 }) {
   return (
     <>
-      {rows.map((s) => (
-        <TableRow key={s.shareCode}>
-          <TableCell className="font-medium">
-            <div className="flex items-center gap-1.5">
-              {s.shareCode}
-              {s.remainingUnits > 0 && (
-                <span
-                  className="size-1.5 rounded-full shrink-0"
-                  style={{ backgroundColor: "#ca8a04" }}
-                  title="Open position"
-                />
+      {rows.map((s) => {
+        const isMixed = s.buyBreakdown.length > 1
+        const isExpanded = expandedCodes.has(s.shareCode)
+        return (
+          <Fragment key={s.shareCode}>
+            <TableRow>
+              <TableCell className="font-medium">
+                <div className="flex items-center gap-1.5">
+                  {s.shareCode}
+                  {s.remainingUnits > 0 && (
+                    <span
+                      className="size-1.5 rounded-full shrink-0"
+                      style={{ backgroundColor: "#ca8a04" }}
+                      title="Open position"
+                    />
+                  )}
+                </div>
+              </TableCell>
+              <TableCell className="max-w-64 truncate text-muted-foreground">
+                {s.shareName}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                {s.totalBought.toLocaleString("en-IN")}
+              </TableCell>
+              <TableCell className="text-right tabular-nums text-muted-foreground">
+                {s.totalSold > 0 ? s.totalSold.toLocaleString("en-IN") : "—"}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                {s.remainingUnits.toLocaleString("en-IN")}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                <div className="flex items-center justify-end gap-1">
+                  {isMixed && (
+                    <button
+                      type="button"
+                      onClick={() => onToggleExpand(s.shareCode)}
+                      className="cursor-pointer text-muted-foreground hover:text-foreground transition-colors"
+                      title="Buy Price is blended across multiple sources — click to see the breakdown"
+                    >
+                      {isExpanded ? (
+                        <ChevronDownIcon className="size-3.5" />
+                      ) : (
+                        <ChevronRightIcon className="size-3.5" />
+                      )}
+                    </button>
+                  )}
+                  <span>{s.avgBuyPrice > 0 ? formatNPR(s.avgBuyPrice) : "—"}</span>
+                  {isMixed && (
+                    <span title="Blended from multiple sources">
+                      <Layers2Icon className="size-3 text-amber-500 shrink-0" />
+                    </span>
+                  )}
+                </div>
+              </TableCell>
+              <TableCell className="text-right tabular-nums text-muted-foreground">
+                {s.avgBuyCost > 0 ? formatNPR(s.avgBuyCost) : "—"}
+              </TableCell>
+              <TableCell className="text-right tabular-nums font-medium">
+                {s.totalSold > 0 ? (
+                  <span
+                    style={
+                      s.realisedPL > 0
+                        ? { color: "#16a34a" }
+                        : s.realisedPL < 0
+                          ? { color: "#dc2626" }
+                          : { color: "var(--muted-foreground)" }
+                    }
+                  >
+                    {s.realisedPL >= 0 ? "+" : ""}
+                    {formatNPR(s.realisedPL)}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </TableCell>
+              <TableCell className="text-right tabular-nums text-muted-foreground">
+                {s.totalTaxPaid > 0 ? formatNPR(s.totalTaxPaid) : "—"}
+              </TableCell>
+              <TableCell>
+                <SourceBadges sources={s.sources} />
+              </TableCell>
+              {portfolioId && (
+                <TableCell>
+                  <div className="flex items-center justify-end gap-1.5">
+                    {hasTransactions && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className="cursor-pointer"
+                        onClick={() => onEdit(s)}
+                      >
+                        <PencilIcon className="size-3.5" />
+                        <span className="sr-only">Edit</span>
+                      </Button>
+                    )}
+                    {s.remainingUnits > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => onSell(s)}
+                        className="cursor-pointer rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
+                        style={{ backgroundColor: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca" }}
+                        onMouseOver={(e) => {
+                          e.currentTarget.style.backgroundColor = "#dc2626"
+                          e.currentTarget.style.color = "white"
+                        }}
+                        onMouseOut={(e) => {
+                          e.currentTarget.style.backgroundColor = "#fef2f2"
+                          e.currentTarget.style.color = "#dc2626"
+                        }}
+                      >
+                        Sell
+                      </button>
+                    )}
+                  </div>
+                </TableCell>
               )}
-            </div>
-          </TableCell>
-          <TableCell className="max-w-64 truncate text-muted-foreground">
-            {s.shareName}
-          </TableCell>
-          <TableCell className="text-right tabular-nums">
-            {s.totalBought.toLocaleString("en-IN")}
-          </TableCell>
-          <TableCell className="text-right tabular-nums text-muted-foreground">
-            {s.totalSold > 0 ? s.totalSold.toLocaleString("en-IN") : "—"}
-          </TableCell>
-          <TableCell className="text-right tabular-nums">
-            {s.remainingUnits.toLocaleString("en-IN")}
-          </TableCell>
-          <TableCell className="text-right tabular-nums">
-            {s.avgBuyPrice > 0 ? formatNPR(s.avgBuyPrice) : "—"}
-          </TableCell>
-          <TableCell className="text-right tabular-nums text-muted-foreground">
-            {s.avgBuyCost > 0 ? formatNPR(s.avgBuyCost) : "—"}
-          </TableCell>
-          <TableCell className="text-right tabular-nums font-medium">
-            {s.totalSold > 0 ? (
-              <span
-                style={
-                  s.realisedPL > 0
-                    ? { color: "#16a34a" }
-                    : s.realisedPL < 0
-                      ? { color: "#dc2626" }
-                      : { color: "var(--muted-foreground)" }
-                }
-              >
-                {s.realisedPL >= 0 ? "+" : ""}
-                {formatNPR(s.realisedPL)}
-              </span>
-            ) : (
-              <span className="text-muted-foreground">—</span>
+            </TableRow>
+            {isMixed && isExpanded && (
+              <BuyBreakdownRow stock={s} colSpan={colSpan} />
             )}
-          </TableCell>
-          <TableCell className="text-right tabular-nums text-muted-foreground">
-            {s.totalTaxPaid > 0 ? formatNPR(s.totalTaxPaid) : "—"}
-          </TableCell>
-          <TableCell>
-            <SourceBadges sources={s.sources} />
-          </TableCell>
-          {portfolioId && (
-            <TableCell>
-              <div className="flex items-center justify-end gap-1.5">
-                {hasTransactions && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    className="cursor-pointer"
-                    onClick={() => onEdit(s)}
-                  >
-                    <PencilIcon className="size-3.5" />
-                    <span className="sr-only">Edit</span>
-                  </Button>
-                )}
-                {s.remainingUnits > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => onSell(s)}
-                    className="cursor-pointer rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
-                    style={{ backgroundColor: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca" }}
-                    onMouseOver={(e) => {
-                      e.currentTarget.style.backgroundColor = "#dc2626"
-                      e.currentTarget.style.color = "white"
-                    }}
-                    onMouseOut={(e) => {
-                      e.currentTarget.style.backgroundColor = "#fef2f2"
-                      e.currentTarget.style.color = "#dc2626"
-                    }}
-                  >
-                    Sell
-                  </button>
-                )}
-              </div>
-            </TableCell>
-          )}
-        </TableRow>
-      ))}
+          </Fragment>
+        )
+      })}
     </>
   )
 }
@@ -287,6 +362,16 @@ export function StockBreakdownTable({
   const [sellTarget, setSellTarget] = useState<StockSummary | null>(null)
   const [editTarget, setEditTarget] = useState<StockSummary | null>(null)
   const [closedOpen, setClosedOpen] = useState(false)
+  const [expandedCodes, setExpandedCodes] = useState<Set<string>>(new Set())
+
+  function toggleExpand(code: string) {
+    setExpandedCodes((prev) => {
+      const next = new Set(prev)
+      if (next.has(code)) next.delete(code)
+      else next.add(code)
+      return next
+    })
+  }
 
   function handleSort(key: SortKey) {
     if (sortKey === key) {
@@ -334,6 +419,7 @@ export function StockBreakdownTable({
   }
 
   const extraCol = portfolioId ? 1 : 0
+  const colSpan = 10 + extraCol
 
   return (
     <>
@@ -361,6 +447,9 @@ export function StockBreakdownTable({
               onEdit={setEditTarget}
               portfolioId={portfolioId}
               hasTransactions={!!transactions}
+              expandedCodes={expandedCodes}
+              onToggleExpand={toggleExpand}
+              colSpan={colSpan}
             />
           </TableBody>
         </Table>
@@ -389,6 +478,9 @@ export function StockBreakdownTable({
                     onEdit={setEditTarget}
                     portfolioId={portfolioId}
                     hasTransactions={!!transactions}
+                    expandedCodes={expandedCodes}
+                    onToggleExpand={toggleExpand}
+                    colSpan={colSpan}
                   />
                 </TableBody>
               </Table>
