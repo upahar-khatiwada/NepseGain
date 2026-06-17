@@ -3,8 +3,10 @@ import { redirect } from "next/navigation"
 import { auth } from "@/src/lib/auth"
 import { prisma } from "@/src/lib/prisma"
 import { calcPortfolioPL, calcGroupPL } from "@/src/lib/pl-summary"
+import { calcStockSummaries } from "@/src/lib/stock-summary"
 import { PLSummaryCard } from "@/src/components/PLSummaryCard"
 import { DateRangeFilter } from "@/src/components/DateRangeFilter"
+import { StockBreakdownTable } from "@/src/components/StockBreakdownTable"
 import { AddPortfolioSection } from "./_components/add-portfolio-section"
 
 export default async function DashboardPage({
@@ -30,6 +32,9 @@ export default async function DashboardPage({
           capitalGainTax: true,
           quantity: true,
           pricePerUnit: true,
+          shareCode: true,
+          shareName: true,
+          source: true,
         },
       },
     },
@@ -38,20 +43,22 @@ export default async function DashboardPage({
   const { new: openNew, from, to } = await searchParams
 
   const portfoliosWithPL = portfolios.map(({ transactions, ...p }) => {
-    const pl = calcPortfolioPL(
-      transactions.map((t) => ({
-        ...t,
-        transactionDate: t.transactionDate.toISOString(),
-      })),
-      from,
-      to
-    )
-    return { ...p, pl }
+    const txWithIsoDate = transactions.map((t) => ({
+      ...t,
+      transactionDate: t.transactionDate.toISOString(),
+      source: t.source as "PRIMARY" | "SECONDARY",
+    }))
+    const pl = calcPortfolioPL(txWithIsoDate, from, to)
+    return { ...p, pl, transactions: txWithIsoDate }
   })
 
   const overallPL = calcGroupPL(portfoliosWithPL.map((p) => p.pl))
 
-  const portfoliosForSection = portfoliosWithPL.map(({ pl, ...p }) => ({
+  // Aggregate all transactions across every portfolio for the combined holdings view
+  const allTransactions = portfoliosWithPL.flatMap((p) => p.transactions)
+  const allStockSummaries = calcStockSummaries(allTransactions)
+
+  const portfoliosForSection = portfoliosWithPL.map(({ pl, transactions: _tx, ...p }) => ({
     id: p.id,
     name: p.name,
     brokerName: p.brokerName,
@@ -70,6 +77,13 @@ export default async function DashboardPage({
         portfolios={portfoliosForSection}
         defaultOpen={openNew === "1"}
       />
+
+      {allStockSummaries.length > 0 && (
+        <div>
+          <h2 className="font-medium mb-3">Holdings (All Portfolios)</h2>
+          <StockBreakdownTable summaries={allStockSummaries} />
+        </div>
+      )}
     </div>
   )
 }

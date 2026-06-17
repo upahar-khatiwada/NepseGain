@@ -828,4 +828,66 @@ export const metadata: Metadata = {
 
 ### What's built so far (updated)
 
-Auth wiring + portfolio management + transaction entry and list + P/L summary and date range filter + **responsive mobile sidebar (Sheet drawer)** + **loading skeletons** + **toast notifications throughout** + **favicon and page title** + **README.md** + **transaction source (IPO vs Secondary) with DP waiver** + **weighted average cost basis for SELL CGT** + **Source badge column in TransactionTable**.
+Auth wiring + portfolio management + transaction entry and list + P/L summary and date range filter + **responsive mobile sidebar (Sheet drawer)** + **loading skeletons** + **toast notifications throughout** + **favicon and page title** + **README.md** + **transaction source (IPO vs Secondary) with DP waiver** + **weighted average cost basis for SELL CGT** + **Source badge column in TransactionTable** + **per-stock P/L breakdown with Holdings/Transactions tabs**.
+
+---
+
+## Per-Stock P/L Breakdown (added in Prompt 9)
+
+### `src/lib/stock-summary.ts` — pure aggregation
+
+```ts
+import { calcStockSummaries } from "@/src/lib/stock-summary"
+import type { StockSummary } from "@/src/lib/stock-summary"
+```
+
+**`calcStockSummaries(transactions: TxForStockSummary[]): StockSummary[]`**
+
+Groups all transactions by `shareCode`. For each stock:
+- `totalBought` / `totalSold` — sum of quantity for BUY / SELL rows
+- `remainingUnits` = `totalBought - totalSold`
+- `totalInvested` — sum of `netAmount` for BUY rows
+- `totalProceeds` — sum of `netAmount` for SELL rows
+- `totalTaxPaid` — sum of `capitalGainTax` for SELL rows
+- `avgBuyCost` — via `getWeightedAverageCost` (includes all buy-side fees)
+- `realisedPL` = `totalProceeds - totalSold × avgBuyCost`; `0` if no sells
+- `sources` — `("PRIMARY" | "SECONDARY")[]` from BUY rows only
+
+`TxForStockSummary` requires: `type`, `shareCode`, `shareName`, `quantity`, `pricePerUnit`, `brokerCommission`, `dpCharge`, `sebon`, `netAmount`, `capitalGainTax`, `source`. Compatible with `TransactionRow` from `TransactionTable.tsx`.
+
+### `components/ui/tabs.tsx` — Tabs primitive (written manually)
+
+Written manually using `@base-ui/react/tabs` (same pattern as `dialog.tsx`). Do NOT use `bunx shadcn@latest add tabs` — it may hang.
+
+```ts
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
+```
+
+Uses `Tabs.Root`, `Tabs.List`, `Tabs.Tab`, `Tabs.Panel` from `@base-ui/react/tabs`. Active tab styled with `data-selected:bg-background data-selected:shadow-xs`.
+
+### `src/components/StockBreakdownTable.tsx` — display component
+
+Client component. Props: `{ summaries: StockSummary[] }`.
+
+Columns: **Code** | **Name** | **Bought** | **Sold** | **Remaining** | **Avg Cost** | **Realised P/L** | **Tax Paid** | **Source**
+
+- Default sort: Realised P/L descending. All column headers are clickable sort buttons.
+- Realised P/L: `+` prefix for gains, inline `style` hex colors (#16a34a green / #dc2626 red); `—` if no sells.
+- Remaining > 0: small yellow dot (`#ca8a04`) next to Code indicating open position.
+- Source cell: shows IPO badge (purple), Secondary badge (blue), or both if mixed.
+- No sells / no buys: shows `—` in numeric cells rather than NPR 0.
+
+### Portfolio page tabs
+
+`src/app/dashboard/portfolio/[id]/page.tsx` now wraps the lower section in `<Tabs defaultValue="holdings">`:
+- **Holdings** tab: `<StockBreakdownTable summaries={stockSummaries} />` — uses ALL transactions (not date-filtered), since holdings represent current position state.
+- **Transactions** tab: existing `TransactionTable` + `AddTransactionDialog` — uses `filteredTransactions` (date-filtered).
+
+The P/L summary card and DateRangeFilter remain above the tabs and continue to apply date filtering to the PLSummaryCard numbers.
+
+### Dashboard combined holdings
+
+`src/app/dashboard/page.tsx` now:
+- Adds `shareCode`, `shareName`, `source` to the Prisma `select` for transactions (needed for `calcStockSummaries`).
+- Flattens all transactions from all portfolios, passes to `calcStockSummaries` to get a cross-portfolio holdings view.
+- Renders `<StockBreakdownTable summaries={allStockSummaries} />` below `AddPortfolioSection`, only when there are transactions.

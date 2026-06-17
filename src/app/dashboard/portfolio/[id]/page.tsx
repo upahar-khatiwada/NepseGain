@@ -3,14 +3,17 @@ import { redirect, notFound } from "next/navigation"
 import { auth } from "@/src/lib/auth"
 import { prisma } from "@/src/lib/prisma"
 import { calcPortfolioPL } from "@/src/lib/pl-summary"
+import { calcStockSummaries } from "@/src/lib/stock-summary"
 import { PLSummaryCard } from "@/src/components/PLSummaryCard"
 import { DateRangeFilter } from "@/src/components/DateRangeFilter"
+import { StockBreakdownTable } from "@/src/components/StockBreakdownTable"
 import { PortfolioActions } from "./_components/portfolio-actions"
 import { AddTransactionDialog } from "@/src/components/AddTransactionDialog"
 import {
   TransactionTable,
   type TransactionRow,
 } from "@/src/components/TransactionTable"
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 
 export default async function PortfolioPage({
   params,
@@ -64,6 +67,9 @@ export default async function PortfolioPage({
 
   const plSummary = calcPortfolioPL(filteredTransactions)
 
+  // Holdings always uses all transactions (unfiltered) — positions are a current-state view
+  const stockSummaries = calcStockSummaries(transactions)
+
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-8">
       <div className="flex items-start justify-between gap-4">
@@ -97,20 +103,35 @@ export default async function PortfolioPage({
 
       <PLSummaryCard summary={plSummary} />
 
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="font-medium">
+      <Tabs defaultValue="holdings">
+        <TabsList>
+          <TabsTrigger value="holdings">Holdings</TabsTrigger>
+          <TabsTrigger value="transactions">
             Transactions
             {filteredTransactions.length > 0 && (
-              <span className="ml-2 text-sm font-normal text-muted-foreground">
+              <span className="ml-1 text-xs font-normal opacity-70">
                 ({filteredTransactions.length})
               </span>
             )}
-          </h2>
-          <AddTransactionDialog portfolioId={id} />
-        </div>
-        <TransactionTable transactions={filteredTransactions} />
-      </div>
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="holdings" className="mt-4">
+          <StockBreakdownTable summaries={stockSummaries} />
+        </TabsContent>
+
+        <TabsContent value="transactions" className="mt-4">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-medium text-sm text-muted-foreground">
+              {filteredTransactions.length === 0
+                ? "No transactions in this range"
+                : `${filteredTransactions.length} transaction${filteredTransactions.length !== 1 ? "s" : ""}`}
+            </h2>
+            <AddTransactionDialog portfolioId={id} />
+          </div>
+          <TransactionTable transactions={filteredTransactions} />
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }
