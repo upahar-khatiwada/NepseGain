@@ -10,7 +10,7 @@ const poppins = Poppins({
 });
 
 export const metadata: Metadata = {
-  title: "NEPSE Tracker",
+  title: "NepseGain",
   description:
     "NEPSE capital gain tax calculator and portfolio tracker for the Nepal Stock Exchange",
   icons: {

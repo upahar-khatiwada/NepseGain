@@ -25,7 +25,7 @@ export default function SignInPage() {
       >
         <div className="flex items-center gap-3">
           <BarChart2Icon className="size-6 shrink-0" style={{ color: "#0d9488" }} />
-          <span className="text-xl font-bold text-white">NEPSE Tracker</span>
+          <span className="text-xl font-bold text-white">NepseGain</span>
         </div>
 
         <div>
@@ -37,7 +37,7 @@ export default function SignInPage() {
           </p>
         </div>
 
-        <p className="text-slate-600 text-sm">Nepal Stock Exchange · NEPSE Tracker</p>
+        <p className="text-slate-600 text-sm">Nepal Stock Exchange · NepseGain</p>
       </div>
 
       {/* Right sign-in panel */}
@@ -49,7 +49,7 @@ export default function SignInPage() {
           {/* Mobile logo (shown when left panel is hidden) */}
           <div className="lg:hidden flex items-center justify-center gap-2 mb-8">
             <BarChart2Icon className="size-5 shrink-0" style={{ color: "#0d9488" }} />
-            <span className="font-bold text-slate-900 text-lg">NEPSE Tracker</span>
+            <span className="font-bold text-slate-900 text-lg">NepseGain</span>
           </div>
 
           <div className="bg-white rounded-2xl border border-slate-100 shadow-lg p-8">
