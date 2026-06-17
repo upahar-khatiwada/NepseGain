@@ -1,5 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { meroShareLogin, fetchAllHoldings } from "@/src/lib/meroshare-api";
+import {
+  meroShareLogin,
+  fetchAllHoldings,
+  type MeroShareSession,
+} from "@/src/lib/meroshare-api";
 
 export async function POST(req: NextRequest) {
   let body: {
@@ -25,9 +29,9 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let token: string;
+  let session: MeroShareSession;
   try {
-    token = await meroShareLogin(username, password, clientId);
+    session = await meroShareLogin(username, password, clientId);
   } catch (err) {
     if (err instanceof Error && err.message === "INVALID_CREDENTIALS") {
       return NextResponse.json(
@@ -38,6 +42,7 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
+    console.error("[meroshare/sync] login failed:", err);
     return NextResponse.json(
       { error: "Could not reach MeroShare. Try again." },
       { status: 503 },
@@ -45,9 +50,10 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { user, lots, failedScrips } = await fetchAllHoldings(token);
+    const { user, lots, failedScrips } = await fetchAllHoldings(session);
     return NextResponse.json({ user, lots, failedScrips });
-  } catch {
+  } catch (err) {
+    console.error("[meroshare/sync] fetchAllHoldings failed:", err);
     return NextResponse.json(
       { error: "Could not reach MeroShare. Try again." },
       { status: 503 },

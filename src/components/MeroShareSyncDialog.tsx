@@ -321,19 +321,13 @@ export function MeroShareSyncDialog({
   const grouped = useMemo(() => groupByScrip(lots), [lots])
   const selectedCount = lots.filter((l) => l.selected).length
 
-  // Fetch DP list directly from MeroShare when dialog opens
+  // Fetch DP list via our server (avoids CORS/proxy issues hitting MeroShare from the browser)
   useEffect(() => {
     if (!open || capitals.length > 0) return
     setCapitalsLoading(true)
-    fetch("https://webbackend.cdsc.com.np/api/meroShare/capital/", {
-      headers: {
-        Accept: "application/json",
-        Origin: "https://meroshare.cdsc.com.np",
-        Referer: "https://meroshare.cdsc.com.np/",
-      },
-    })
+    fetch("/api/meroshare/capital")
       .then((r) => r.json())
-      .then((data) => { if (Array.isArray(data)) setCapitals(data) })
+      .then((data) => { if (Array.isArray(data.capitals)) setCapitals(data.capitals) })
       .catch(() => {})
       .finally(() => setCapitalsLoading(false))
   }, [open, capitals.length])
