@@ -2,7 +2,7 @@
 
 A capital gain tax calculator and portfolio tracker for the Nepal Stock Exchange (NEPSE).
 
-Track your BUY and SELL transactions, see computed broker commissions, DP charges, SEBON fees, and CGT — all stored at save time so historical records are never affected by future rate changes.
+Track your BUY and SELL transactions, see computed broker commissions, DP charges, SEBON fees, and CGT — all stored at save time so historical records are never affected by future rate changes. Holdings can be synced directly from MeroShare, edited in place to fix mistakes, and Realised P/L is tracked separately from money still tied up in shares you haven't sold yet.
 
 ---
 
@@ -24,18 +24,9 @@ bun install
 
 ### 2. Configure environment variables
 
-**.env** — real secrets, never commit this file:
+**.env.local** — OAuth keys + public NEPSE fee constants:
 
 ```env
-DATABASE_URL=postgresql://user:password@host/dbname?sslmode=require
-BETTER_AUTH_SECRET=your-random-secret-string-at-least-32-chars
-BETTER_AUTH_URL=http://localhost:3000
-```
-
-**.env.local** — overrides + OAuth keys + public NEPSE fee constants:
-
-```env
-# Override .env values for local dev
 DATABASE_URL=postgresql://...
 BETTER_AUTH_SECRET=...
 BETTER_AUTH_URL=http://localhost:3000
@@ -108,9 +99,13 @@ All calculations live in `src/lib/nepse-calc.ts` and run on both client (live pr
 txValue = quantity × pricePerUnit
 ```
 
+### Primary market purchases are charge-free
+
+Any BUY from a primary-market source — **Primary Market (IPO)**, **Bonus Shares**, or a MeroShare-imported IPO/FPO/Rights/Bonus/Merger/Demat lot — pays **zero** broker commission, DP charge, and SEBON fee. The charges below only apply to ordinary secondary-market trades (and auctions). This reflects that primary allotments come directly from the company/registrar, not through a broker trade on the exchange.
+
 ### Broker commission (tiered, non-stacked)
 
-The entire `txValue` is multiplied by one applicable rate:
+The entire `txValue` is multiplied by one applicable rate (`0` for primary-market sources, see above):
 - `txValue ≤ 50,000` → 0.40%
 - `50,000 < txValue ≤ 500,000` → 0.37%
 - `txValue > 500,000` → 0.34%
@@ -118,18 +113,18 @@ The entire `txValue` is multiplied by one applicable rate:
 ### SEBON fee
 
 ```
-sebon = txValue × 0.00015   (0.015%)
+sebon = txValue × 0.00015   (0.015%, or 0 for primary-market sources)
 ```
 
 ### DP charge
 
 ```
-dpCharge = NPR 25 (flat, every transaction)
+dpCharge = NPR 25 flat per secondary-market transaction, or 0 for primary-market sources
 ```
 
 ### Capital Gain Tax (SELL only)
 
-CGT applies to **profit only** — no tax on losses.
+CGT applies to **profit only** — no tax on losses. It's computed purely on the SELL side and is unaffected by what source the original shares came from.
 
 ```
 capitalGain    = max(0, (sellPrice − buyPrice) × quantity)
@@ -148,6 +143,21 @@ netAmount = txValue + brokerCommission + sebon + dpCharge
 ```
 netAmount = txValue − brokerCommission − sebon − dpCharge − capitalGainTax
 ```
+
+### Bonus shares
+
+Bonus shares (free shares issued as a stock dividend) can be recorded as a BUY with source "Bonus Shares." Price per unit is locked to `0` since no money changes hands, and — like other primary-market sources — no broker commission, DP charge, or SEBON applies. They still correctly dilute your average cost basis downward when you later sell, which lowers the capital gain (and tax) on that sale, same as the real tax treatment.
+
+---
+
+## Realised P/L vs. Holdings
+
+The dashboard and each portfolio page show two distinct figures, deliberately kept separate:
+
+- **Net P/L** — *realised* profit or loss only, calculated from shares you've actually sold against their cost basis. Shares you're still holding never appear here as a "loss," even though their purchase cost has already left your account.
+- **In Hold** — the raw value of shares you're still holding (quantity × actual price paid, no fees), across all open positions. This is capital that's invested, not lost — it only becomes part of Net P/L once you sell.
+
+Each stock in the Holdings table also shows two related but different numbers: **Buy Price** (the raw price you actually paid per unit) and **Avg Cost** (that price plus broker commission/DP/SEBON rolled in — the cost basis used for capital gains tax). Avg Cost will always be slightly higher than Buy Price; that's expected, not a bug.
 
 ---
 

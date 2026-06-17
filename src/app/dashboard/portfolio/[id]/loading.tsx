@@ -2,7 +2,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 
 export default function PortfolioLoading() {
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-8">
+    <div className="p-6 max-w-[1600px] mx-auto space-y-8">
       {/* Portfolio header skeleton */}
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-2">

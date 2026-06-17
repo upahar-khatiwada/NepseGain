@@ -140,7 +140,7 @@ export function TransactionTable({
                   {tx.type === "BUY" && <SourceBadge source={tx.source} />}
                 </TableCell>
                 <TableCell className="font-medium">{tx.shareCode}</TableCell>
-                <TableCell className="max-w-35 truncate text-muted-foreground">
+                <TableCell className="max-w-64 truncate text-muted-foreground">
                   {tx.shareName}
                 </TableCell>
                 <TableCell className="text-right tabular-nums">

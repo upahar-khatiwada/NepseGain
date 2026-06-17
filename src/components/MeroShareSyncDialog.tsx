@@ -449,7 +449,7 @@ export function MeroShareSyncDialog({
       </Button>
 
       <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose() }}>
-        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className={`max-h-[90vh] overflow-y-auto ${step === "preview" ? "sm:max-w-5xl" : "sm:max-w-2xl"}`}>
 
           {/* ── Step 1: Credentials ── */}
           {step === "credentials" && (

@@ -685,8 +685,8 @@ import type { PLSummary } from "@/src/lib/pl-summary"
 
 - Accepts `TxForPL[]` where `transactionDate` is an ISO string (`.toISOString()` from Prisma)
 - Date filter compares `transactionDate.slice(0, 10)` (YYYY-MM-DD) against `startDate`/`endDate`
-- `grossPL = sum(SELL txValue) - sum(BUY txValue)` — raw price difference before fees
-- `netPL = totalProceeds - totalInvested` — using stored `netAmount`, so all fees and CGT are included
+- `totalInvested = sum(BUY quantity × pricePerUnit)` — raw capital deployed, no fees rolled in
+- `netPL` and `grossPL` are **realised-only** (fixed in Prompt 12 — see below for why this matters): computed per SELL row against its cost basis (`avgBuyCostPerUnit ?? buyPricePerUnit ?? pricePerUnit`), never against the cost of shares still held
 - `totalCommissions` = broker + DP + SEBON across all transactions (BUY and SELL)
 - `totalTax` = sum of `capitalGainTax` on SELL transactions only
 - `txCount` = count of transactions that passed the date filter
@@ -708,17 +708,7 @@ export function formatNPR(amount: number): string {
 
 ### `src/components/PLSummaryCard.tsx` — display component
 
-Server component (no `"use client"`). Props: `{ summary: PLSummary }`.
-
-- Net P/L in `text-3xl font-bold` with inline hex color: `#16a34a` (green) / `#dc2626` (red) / `var(--muted-foreground)` (zero)
-- Sub-row order (designed to show context for the Net P/L figure):
-  1. Total Invested
-  2. Total Proceeds
-  3. **Net Profit / Loss** (colored, same color as header — = Proceeds − Invested, shown inline after a border-t)
-  4. Gross P/L (before fees) — in a second `border-t` group
-  5. Total Tax Paid
-  6. Total Commissions
-- Uses `formatNPR` from `@/src/lib/nepse-calc`
+> Superseded by the Prompt 10 stat-card grid redesign and the Prompt 12 `holdings` prop — see those sections below for the current layout. (Original single-card sub-row layout from this prompt no longer exists in the code.)
 
 ### `src/components/DateRangeFilter.tsx` — client filter
 
@@ -772,11 +762,12 @@ Stored on every Transaction row (`@default(SECONDARY)`). Only meaningful for BUY
 
 ### Source toggle in `AddTransactionDialog` and `EditTransactionDialog`
 
-Appears only when `type === "BUY"`. Two buttons styled similarly to the BUY/SELL toggle:
+Appears only when `type === "BUY"`. Three buttons styled similarly to the BUY/SELL toggle:
 - Secondary Market — blue active state (`border-blue-500 bg-blue-500/10`)
 - Primary Market (IPO) — purple active state (`border-purple-500 bg-purple-500/10`)
+- **Bonus Shares** (`source: "BONUS"`, added in Prompt 12) — emerald active state (`border-emerald-500 bg-emerald-500/10`)
 
-When PRIMARY is selected, an info banner appears (`InfoIcon` + text) explaining the DP charge waiver. The live charge preview immediately reflects `dpCharge: 0`.
+When PRIMARY is selected, an info banner appears (`InfoIcon` + text) explaining that no charges apply on primary market allotment (see [NEPSE Calculation Rules](#nepse-calculation-rules)). When BONUS is selected, a similar emerald banner explains bonus shares are free; clicking the button also calls `form.setValue("pricePerUnit", 0)` and the price input is `disabled` + forced to display `0` while BONUS is active (see Prompt 12 section for the schema changes that allow a `0` price only in this case). The live charge preview immediately reflects `dpCharge/brokerCommission/sebon: 0` for both PRIMARY and BONUS.
 
 ### Source badge in `TransactionTable`
 
@@ -879,12 +870,16 @@ import type { StockSummary } from "@/src/lib/stock-summary"
 Groups all transactions by `shareCode`. For each stock:
 - `totalBought` / `totalSold` — sum of quantity for BUY / SELL rows
 - `remainingUnits` = `totalBought - totalSold`
-- `totalInvested` — sum of `netAmount` for BUY rows
+- `totalInvested` — **(changed in Prompt 12)** sum of raw `quantity × pricePerUnit` for BUY rows — no fees rolled in (previously summed `netAmount`, which double-counted fees into "investment")
 - `totalProceeds` — sum of `netAmount` for SELL rows
 - `totalTaxPaid` — sum of `capitalGainTax` for SELL rows
-- `avgBuyCost` — via `getWeightedAverageCost` (includes all buy-side fees)
+- `avgBuyPrice` — **(added in Prompt 12)** `totalInvested ÷ totalBought` — weighted avg raw price actually paid, no fees. This is the "actual price" the user pays, as distinct from `avgBuyCost` below.
+- `avgBuyCost` — via `getWeightedAverageCost` (includes all buy-side fees) — the CGT cost basis, always ≥ `avgBuyPrice`
 - `realisedPL` = `totalProceeds - totalSold × avgBuyCost`; `0` if no sells
-- `sources` — `("PRIMARY" | "SECONDARY")[]` from BUY rows only
+- `remainingValue` — **(added in Prompt 12)** `remainingUnits × avgBuyPrice`; `0` if fully sold. Raw capital still tied up in an open position.
+- `sources` — `TransactionSource[]` from BUY rows only (all 10 enum values possible, not just `PRIMARY | SECONDARY`)
+
+**`calcHoldingsSummary(summaries: StockSummary[]): HoldingsSummary`** — **(added in Prompt 12)** aggregates open positions (`remainingUnits > 0`) across all stocks into `{ stockCount, totalUnits, totalValue }`. `totalValue` sums `remainingValue`. Used to feed the "In Hold" stat card on `PLSummaryCard` — see [Holdings Editing, Realised P/L Fix & Bonus Shares](#holdings-editing-realised-pl-fix--bonus-shares-added-in-prompt-12).
 
 `TxForStockSummary` requires: `type`, `shareCode`, `shareName`, `quantity`, `pricePerUnit`, `brokerCommission`, `dpCharge`, `sebon`, `netAmount`, `capitalGainTax`, `source`. Compatible with `TransactionRow` from `TransactionTable.tsx`.
 
@@ -900,30 +895,31 @@ Uses `Tabs.Root`, `Tabs.List`, `Tabs.Tab`, `Tabs.Panel` from `@base-ui/react/tab
 
 ### `src/components/StockBreakdownTable.tsx` — display component
 
-Client component. Props: `{ summaries: StockSummary[] }`.
+Client component. Props: `{ summaries: StockSummary[]; portfolioId?: string; transactions?: TransactionRow[] }` — `transactions` added in Prompt 12 (see below); optional and only passed where per-share editing should be available.
 
-Columns: **Code** | **Name** | **Bought** | **Sold** | **Remaining** | **Avg Cost** | **Realised P/L** | **Tax Paid** | **Source**
+Columns: **Code** | **Name** | **Bought** | **Sold** | **Remaining** | **Buy Price** | **Avg Cost** | **Realised P/L** | **Tax Paid** | **Source** | _(Edit/Sell actions, when `portfolioId` passed)_
 
-- Default sort: Realised P/L descending. All column headers are clickable sort buttons.
+- **Default sort: Code ascending (alphabetical)** — changed in Prompt 12 from Realised P/L descending. All column headers are clickable sort buttons.
+- **Buy Price** column (added in Prompt 12) — `avgBuyPrice`, the raw price paid with no fees. Sits next to **Avg Cost** (`avgBuyCost`, fee-inclusive CGT basis) so both are visible side by side; header `title` attributes explain the distinction on hover.
 - Realised P/L: `+` prefix for gains, inline `style` hex colors (#16a34a green / #dc2626 red); `—` if no sells.
 - Remaining > 0: small yellow dot (`#ca8a04`) next to Code indicating open position.
-- Source cell: shows IPO badge (purple), Secondary badge (blue), or both if mixed.
+- Source cell: shows IPO/Secondary/etc. badge per source actually present, or multiple if mixed.
 - No sells / no buys: shows `—` in numeric cells rather than NPR 0.
 
 ### Portfolio page tabs
 
 `src/app/dashboard/portfolio/[id]/page.tsx` now wraps the lower section in `<Tabs defaultValue="holdings">`:
-- **Holdings** tab: `<StockBreakdownTable summaries={stockSummaries} />` — uses ALL transactions (not date-filtered), since holdings represent current position state.
+- **Holdings** tab: `<StockBreakdownTable summaries={stockSummaries} portfolioId={id} transactions={transactions} />` — uses ALL transactions (not date-filtered), since holdings represent current position state. Passing `transactions` (added in Prompt 12) is what enables the per-share Edit button — see below.
 - **Transactions** tab: existing `TransactionTable` + `AddTransactionDialog` — uses `filteredTransactions` (date-filtered).
 
-The P/L summary card and DateRangeFilter remain above the tabs and continue to apply date filtering to the PLSummaryCard numbers.
+The P/L summary card and DateRangeFilter remain above the tabs and continue to apply date filtering to the PLSummaryCard numbers. `holdings={calcHoldingsSummary(stockSummaries)}` is also passed to `PLSummaryCard` (Prompt 12).
 
 ### Dashboard combined holdings
 
 `src/app/dashboard/page.tsx` now:
 - Adds `shareCode`, `shareName`, `source` to the Prisma `select` for transactions (needed for `calcStockSummaries`).
 - Flattens all transactions from all portfolios, passes to `calcStockSummaries` to get a cross-portfolio holdings view.
-- Renders `<StockBreakdownTable summaries={allStockSummaries} />` below `AddPortfolioSection`, only when there are transactions.
+- Renders `<StockBreakdownTable summaries={allStockSummaries} />` below `AddPortfolioSection`, only when there are transactions. No `portfolioId`/`transactions` passed here (the flattened cross-portfolio rows don't carry a single portfolio's `id`s), so Edit/Sell actions don't appear on this view — only on the per-portfolio page.
 
 ---
 
@@ -961,6 +957,8 @@ Replaced the single card layout with a `grid grid-cols-2 lg:grid-cols-4` of `Sta
 4. **Transactions** — `ActivityIcon`
 
 Each card: white bg, `border-slate-100 shadow-sm`, icon in a tinted rounded square.
+
+> **Updated in Prompt 12**: a 5th card, **"In Hold"** (`LockIcon`, teal), was inserted between "Total Invested" and "Total Tax Paid". Grid becomes `lg:grid-cols-5` whenever the optional `holdings` prop is passed. See [Holdings Editing, Realised P/L Fix & Bonus Shares](#holdings-editing-realised-pl-fix--bonus-shares-added-in-prompt-12) below.
 
 ### Greeting component
 
@@ -1084,3 +1082,69 @@ These send only `Content-Type` + `Authorization` — no `Cookie` header (browser
 importMeroShareLots(portfolioId, lots: ImportLotInput[]): Promise<{ imported, skipped, failed }>
 ```
 For each selected lot: computes `source = mapTransactionType(lot.transactionType)`, checks for an existing duplicate (`portfolioId + shareCode + transactionDate + quantity + source`), skips if found, otherwise runs `calculateCharges({ type: "BUY", source, quantity, pricePerUnit: rate })` and creates the row with `importedFrom: "MEROSHARE"`. Per-lot creation failures are caught and pushed to `failed`; the duplicate-check query is **not** wrapped in try/catch, so an invalid `source` enum value would crash the whole action rather than just skip that lot — this is exactly what happened when the generated Prisma client was stale (see the schema Gotcha above). If this action starts 500ing on import, check the generated enum before assuming the mapping logic is wrong.
+
+---
+
+## Holdings Editing, Realised P/L Fix & Bonus Shares (added in Prompt 12)
+
+Three independent changes from the same session: (1) a way to fix mistakes in already-imported/entered lots directly from the Holdings view, (2) a real calculation bug where unsold holdings were being counted as a loss, and (3) support for recording bonus share allotments.
+
+### Bug fixed: Net P/L was counting unsold holdings as a loss
+
+`calcPortfolioPL` used to compute `netPL = totalProceeds - totalInvested`, where `totalInvested` summed **every** BUY ever made — including shares still held, with no matching SELL. A portfolio that was 100% unsold showed a "loss" equal to its entire invested amount, even though nothing had actually been sold yet. This was reported as "showing a heavy loss that seems wrong" and traced to a real GRDBL holding where the displayed Avg Cost (1096.45, fee-inclusive) was momentarily mistaken for a second bug — it wasn't; that number was correct (see `avgBuyPrice` vs `avgBuyCost` below), but investigating it surfaced the real netPL bug.
+
+Fixed in `src/lib/pl-summary.ts`: `netPL` and `grossPL` are now computed **only** from SELL rows, each against its own stored cost basis:
+
+```ts
+const costBasis = t.avgBuyCostPerUnit ?? t.buyPricePerUnit ?? t.pricePerUnit
+netPL += t.netAmount - costBasis * t.quantity        // realised, fee/tax-inclusive
+grossPL += (t.pricePerUnit - costBasis) * t.quantity  // realised, before fees
+```
+
+`totalInvested` changed meaning too — it's now raw `quantity × pricePerUnit` summed across BUY rows (no fees), used purely as an informational "capital deployed" figure, no longer subtracted into `netPL`. The "In Hold" stat (below) is what visually accounts for the capital tied up in unsold shares, so the Net P/L card can't be misread as a loss anymore.
+
+If you're asked to investigate a "wrong number" on the dashboard again: first check whether the confusion is `avgBuyPrice` vs `avgBuyCost` (two correct, differently-scoped numbers — not a bug), before assuming the P/L math itself is broken.
+
+### "In Hold" stat card — `calcHoldingsSummary`
+
+`src/lib/stock-summary.ts` exports `calcHoldingsSummary(summaries: StockSummary[]): HoldingsSummary` — `{ stockCount, totalUnits, totalValue }`, aggregating `remainingValue` across all stocks with `remainingUnits > 0`. Both `src/app/dashboard/page.tsx` and `src/app/dashboard/portfolio/[id]/page.tsx` compute this from their respective `stockSummaries`/`allStockSummaries` and pass it as `holdings` to `<PLSummaryCard>`. `PLSummaryCard` renders a 5th `StatCard` ("In Hold", `LockIcon`, teal `#0d9488`) only when `holdings` is supplied, switching the grid to `lg:grid-cols-5`.
+
+### `avgBuyPrice` vs `avgBuyCost` — and the new "Buy Price" column
+
+Two different, both-correct numbers per stock in `StockSummary`:
+- **`avgBuyPrice`** — weighted average of the raw price you actually paid per unit. No broker commission, DP charge, or SEBON included. This is "the actual price."
+- **`avgBuyCost`** — weighted average cost basis **including** all buy-side fees (via `getWeightedAverageCost`). Always ≥ `avgBuyPrice`. This is what's used for CGT on a later SELL — it must include fees so tax isn't overstated.
+
+`StockBreakdownTable.tsx` now shows both as separate columns ("Buy Price" then "Avg Cost"), each with a `title` tooltip explaining the difference, specifically so a user comparing their own purchase confirmation against the app doesn't mistake the fee-inclusive cost basis for a data-entry error.
+
+### Default Holdings sort is now alphabetical by Code
+
+`StockBreakdownTable` previously defaulted to Realised P/L descending; it now defaults to `shareCode` ascending (`sortKey="shareCode", sortDir="asc"`). Users can still click any column header to re-sort.
+
+### Per-share Edit button — `EditHoldingDialog`
+
+Each Holdings row (when `portfolioId` and `transactions` are both passed to `StockBreakdownTable`) gets a pencil icon button next to "Sell". It opens `EditHoldingDialog` (defined inside `StockBreakdownTable.tsx`), which lists every underlying BUY/SELL lot for that `shareCode` in a small table with its own Edit/Delete icon buttons. Clicking Edit/Delete on a lot opens the **same** `EditTransactionDialog`/`DeleteConfirmDialog` used by the Transactions tab — nothing new was built for per-lot editing, it's the existing full transaction editor (type, source, code, name, quantity, price, date, days held, notes — all fields) reused in a different entry point.
+
+This required extracting `EditTransactionDialog` and `DeleteConfirmDialog` out of `TransactionTable.tsx` into a new shared file, **`src/components/TransactionEditDialogs.tsx`**, so both `TransactionTable.tsx` and `StockBreakdownTable.tsx` can import them without duplicating the ~450-line edit form. `TransactionEditDialogs.tsx` imports the `TransactionRow` type from `TransactionTable.tsx` via `import type` (type-only, so no runtime circular dependency even though `TransactionTable.tsx` imports the dialog components back from `TransactionEditDialogs.tsx`).
+
+The cross-portfolio Holdings table on `/dashboard` doesn't pass `portfolioId`/`transactions` (its flattened rows don't carry per-row `id`s tied to a single portfolio), so neither Edit nor Sell buttons appear there — same gating pattern as before, just extended to the new Edit button.
+
+### Bonus Shares as a manual transaction source
+
+Bonus shares (free shares issued as a stock dividend) are now a third option in the Source toggle (alongside Secondary Market / Primary Market IPO) in both `AddTransactionDialog.tsx` and `TransactionEditDialogs.tsx`'s `EditTransactionDialog`. Selecting it:
+- Sets `source: "BONUS"` and force-sets `pricePerUnit` to `0` (`form.setValue("pricePerUnit", 0)`), since bonus shares are free.
+- Disables the Price per Unit input while BONUS is selected (`disabled={watchedType === "BUY" && watchedSource === "BONUS"}`), displaying `0` regardless of the underlying field value, so it can't accidentally be edited to something else.
+- `BONUS` was already in `NO_CHARGE_SOURCES`/`NO_DP_SOURCES` in `nepse-calc.ts` (from the MeroShare-import path), so commission/DP/SEBON are already correctly `0` — no calc changes needed, only the manual-entry UI was missing this option.
+
+**Validation had to be relaxed to allow `pricePerUnit === 0`, but only for `BUY + BONUS`.** Both client schemas (`AddTransactionDialog.tsx`, `TransactionEditDialogs.tsx`) and the server schema (`src/actions/transaction.ts`'s `transactionSchema`) changed `pricePerUnit: z.coerce.number().positive(...)` to `.nonnegative(...)`, then added an object-level `.refine()`:
+
+```ts
+.refine(
+  (data) => data.pricePerUnit > 0 || (data.type === "BUY" && data.source === "BONUS"),
+  { message: "Price must be positive", path: ["pricePerUnit"] }
+)
+```
+
+This keeps strict positive-price validation for every other case while permitting `0` specifically for bonus allotments — and the server-side copy is the actual source of truth (defense in depth) regardless of what the client sends. The live charge-preview guard in both dialogs was also loosened from `price <= 0 → no preview` to `price < 0 → no preview`, so a `0`-price Bonus entry still shows a (all-zero) charge preview instead of the preview panel disappearing.
+
+`getWeightedAverageCost` (`src/lib/cost-basis.ts`) needed no change — a bonus lot naturally contributes `quantity × 0 + 0 + 0 + 0 = 0` to the cost pool, correctly diluting the average cost basis downward when bonus shares are added to a holding, which matches real tax treatment (bonus shares have zero cost basis).

@@ -87,7 +87,7 @@ function StockRows({
               )}
             </div>
           </TableCell>
-          <TableCell className="max-w-36 truncate text-muted-foreground">
+          <TableCell className="max-w-64 truncate text-muted-foreground">
             {s.shareName}
           </TableCell>
           <TableCell className="text-right tabular-nums">
@@ -196,7 +196,7 @@ function EditHoldingDialog({
   return (
     <>
       <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
-        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{stock.shareCode} — Edit Lots</DialogTitle>
           </DialogHeader>
