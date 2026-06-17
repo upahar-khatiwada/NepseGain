@@ -31,15 +31,20 @@ NEPSE capital gain tax calculator and portfolio tracker for the Nepal Stock Exch
 ├── src/
 │   ├── actions/
 │   │   ├── portfolio.ts            # Server Actions: createPortfolio, updatePortfolio, deletePortfolio, getUserPortfolios
-│   │   └── transaction.ts          # Server Actions: addTransaction, updateTransaction, deleteTransaction, getPortfolioTransactions
+│   │   └── transaction.ts          # Server Actions: addTransaction, updateTransaction, deleteTransaction, getPortfolioTransactions, importMeroShareLots
 │   ├── app/
 │   │   ├── (auth)/
 │   │   │   └── sign-in/
 │   │   │       └── page.tsx        # Google sign-in page → redirects to /dashboard
 │   │   ├── api/
-│   │   │   └── auth/
-│   │   │       └── [...all]/
-│   │   │           └── route.ts    # BetterAuth catch-all handler (GET/POST/PATCH/PUT/DELETE)
+│   │   │   ├── auth/
+│   │   │   │   └── [...all]/
+│   │   │   │       └── route.ts    # BetterAuth catch-all handler (GET/POST/PATCH/PUT/DELETE)
+│   │   │   └── meroshare/
+│   │   │       ├── capital/
+│   │   │       │   └── route.ts    # GET — proxies getCapitalList() (DP/broker list)
+│   │   │       └── sync/
+│   │   │           └── route.ts    # POST {username,password,clientId} → server-side login + getMyDetails only
 │   │   ├── dashboard/
 │   │   │   ├── _components/
 │   │   │   │   ├── add-portfolio-section.tsx  # Client: portfolio cards grid + "Add Portfolio" dialog
@@ -57,12 +62,14 @@ NEPSE capital gain tax calculator and portfolio tracker for the Nepal Stock Exch
 │   ├── components/
 │   │   ├── AddTransactionDialog.tsx  # Client: "Add Transaction" button + dialog with live charge preview
 │   │   ├── DateRangeFilter.tsx       # Client: From/To date inputs + preset buttons; updates ?from=&to= URL params
+│   │   ├── MeroShareSyncDialog.tsx   # Client: 3-step MeroShare import (credentials → preview lots → done)
 │   │   ├── PLSummaryCard.tsx         # Server: displays PLSummary — net P/L large text + sub-rows
 │   │   └── TransactionTable.tsx      # Client: sortable transaction table with inline Edit + Delete dialogs; exports TransactionRow type
 │   ├── lib/
 │   │   ├── auth.ts                 # BetterAuth server config (Prisma adapter, Google OAuth)
 │   │   ├── auth-client.ts          # BetterAuth client (signIn, signOut, useSession)
 │   │   ├── cost-basis.ts           # Pure getWeightedAverageCost() — weighted avg buy cost per unit
+│   │   ├── meroshare-api.ts        # MeroShare/CDSC API client — server-side login + browser-side holdings fetch (see below)
 │   │   ├── nepse-calc.ts           # Pure calculateCharges() + formatNPR() — works on client and server; reads NEXT_PUBLIC_* env vars
 │   │   ├── pl-summary.ts           # Pure calcPortfolioPL() + calcGroupPL() — P/L aggregation helpers
 │   │   └── prisma.ts               # Singleton PrismaClient (PrismaPg pool adapter)
@@ -370,10 +377,15 @@ Prisma client output goes to `generated/prisma/` — import from `@/generated/pr
 | `Portfolio` | One user can own multiple NEPSE portfolios (own, spouse, parent…) |
 | `Transaction` | Each buy or sell event: quantity, price, charges, net amount |
 
-### Enums: `TransactionType` (`BUY | SELL`), `TransactionSource` (`PRIMARY | SECONDARY`)
+### Enums: `TransactionType` (`BUY | SELL`), `TransactionSource` (`PRIMARY | SECONDARY | MARKET | IPO | FPO | RIGHT | BONUS | MERGER | DEMAT | AUCTION`)
+
+`TransactionSource` was extended from 2 to 10 values in migration `20260617021332_add_meroshare_sources` to support importing real MeroShare purchase-source data without lossy remapping (see [MeroShare Integration](#meroshare-integration) below). `PRIMARY`/`SECONDARY` are the original manually-entered values; the other 8 are MeroShare's own purchase-source vocabulary, stored as-is.
+
+> **Gotcha:** this enum's migration was applied to the DB but `bun run prisma generate` wasn't re-run afterward in an earlier session, leaving `generated/prisma/enums.ts` stuck on the old 2-value enum — Prisma silently has no problem with this until you actually try to write/query one of the new values, at which point it throws at runtime (not a TS error, since the stale generated types still "matched" elsewhere). If `TransactionSource`-related code starts throwing despite matching `schema.prisma`, check whether the generated client is stale before assuming the schema/migration is wrong: `bun run prisma migrate status` confirms DB state, `bun run prisma generate` resyncs the client. Restart `bun dev` afterward — Next dev doesn't reliably hot-reload a regenerated client.
 
 ### Key fields on Transaction (stored at save time so historical records survive rate changes)
-- `source TransactionSource` — `PRIMARY` for IPO/rights allotment; `SECONDARY` for exchange trades (default). BUY only — always `SECONDARY` for SELL rows.
+- `source TransactionSource` — `PRIMARY` for IPO/rights allotment; `SECONDARY` for exchange trades (default); or one of the 8 MeroShare-specific values when imported via sync. BUY only — always `SECONDARY` for SELL rows.
+- `importedFrom String?` — set to `"MEROSHARE"` on rows created via `importMeroShareLots`; `null` for manually-entered transactions.
 - `pricePerUnit` — selling price per share (for SELL) or buying price (for BUY)
 - `buyPricePerUnit Float?` — user-entered purchase price; SELL only; kept for reference / dialog preview fallback
 - `avgBuyCostPerUnit Float?` — server-computed weighted average buy cost per unit (including all fees); SELL only; authoritative CGT cost basis
@@ -450,7 +462,9 @@ Prisma client output goes to `generated/prisma/` — import from `@/generated/pr
 
 ```bash
 bun dev                          # Start dev server
-bun run prisma migrate dev       # Create and apply a new migration
+bun run prisma migrate dev       # Create and apply a new migration (also regenerates the client)
+bun run prisma generate          # Regenerate the client only (e.g. if migrate status is "up to date" but types look stale)
+bun run prisma migrate status    # Check whether the DB has pending/unapplied migrations
 bun run prisma studio            # Open Prisma Studio (DB GUI)
 bunx better-auth generate        # Regenerate BetterAuth types/config
 bunx shadcn@latest add <name>    # Add a new shadcn component
@@ -976,3 +990,78 @@ Props: `{ transactions: ChartTx[] }`. Cumulative sum of per-sell P/L over time. 
 - No portfolios: SVG bar-chart-with-trendline illustration + "Add your first portfolio" teal button.
 - Holdings tab with no transactions: small bar chart SVG + "No transactions yet. Add your first buy or sell." + `AddTransactionDialog` button.
 - Transactions tab with 0 results: dashed border empty box with text prompt.
+
+---
+
+## MeroShare Integration (added in Prompt 11)
+
+Lets a user pull their real holdings + purchase history directly from MeroShare (CDSC's investor portal) instead of entering every transaction by hand. The hardest part of this feature isn't the data mapping — it's that MeroShare's backend sits behind a WAF that blocks some endpoints when called from a server, which forced a split architecture (see below). If you're touching this feature, read this section before changing anything — several earlier attempts at "obvious" fixes (cookie jars, header spoofing) did not work and the reasons are recorded here so they aren't re-tried.
+
+### The core constraint: some endpoints can only be called from a browser
+
+MeroShare's backend (`https://webbackend.cdsc.com.np/api/...`) is undocumented and reverse-engineered from real captured browser traffic (DevTools "Copy as cURL"), not from any spec. Three endpoints are used:
+
+| Endpoint | Purpose | Callable from server? |
+|---|---|---|
+| `POST {BASE}/auth/` | Login, returns JWT | ✅ Yes |
+| `GET {BASE}/ownDetail/` | User's name/demat/clientCode | ✅ Yes |
+| `GET {BASE}/capital/` | DP/broker list (no auth) | ✅ Yes |
+| `POST {API_ROOT}/meroShareView/myShare/` | Current holdings list | ❌ **No — browser only** |
+| `POST {API_ROOT}/myPurchase/search/wacc/` | Per-scrip purchase history (WACC) | ❌ **No — browser only** |
+
+(`BASE = https://webbackend.cdsc.com.np/api/meroShare`, `API_ROOT = https://webbackend.cdsc.com.np/api`.)
+
+The last two sit behind an **F5 Bot Defense policy** that returns HTTP 200 with an HTML body (`<title>Request Rejected</title>...Your support ID is: ...`) instead of JSON, for any request whose TLS/HTTP2 fingerprint doesn't match a real browser engine. This is **not fixable by matching headers** — confirmed by capturing a real successful browser request's exact header set (including `Sec-Fetch-*`, `Sec-Ch-Ua-*`) via DevTools and replicating it byte-for-byte in Node's `fetch()`; the block persisted identically. Node's `fetch` (undici) has a different TLS client hello than Chrome/Edge, and the WAF policy attached to these two endpoints specifically checks for that, independent of any spoofable header. `auth/`, `ownDetail/`, and `capital/` aren't behind this policy and work fine from Node.
+
+**The fix**: these two endpoints return `Access-Control-Allow-Origin: *`, so they can be called directly from a browser with no CORS error — including from our own app's pages. So login + `ownDetail` happen server-side (they work, and keeping login server-side avoids exposing the password to anything beyond our own backend), and the JWT is passed back to the client, which then calls `meroShareView/myShare/` and `myPurchase/search/wacc/` directly via `fetch()` from inside the browser. A real browser fetch naturally carries a real browser's TLS fingerprint and automatically attaches its own `Sec-Fetch-*`/`Sec-Ch-Ua-*` headers (these can't be overridden by page JS, which works in our favor here) — so it passes the same check a normal MeroShare website visit would.
+
+If this feature breaks again with a "Request Rejected" HTML body or a JSON-parse error on one of the two browser-only endpoints, the fix is almost never a header tweak — verify the call is actually happening client-side, not server-side.
+
+### `src/lib/meroshare-api.ts`
+
+No `"use client"`/`"use server"` directive — this file is imported by both a server route and a client component, so it must stay free of Node-only or browser-only APIs (it only uses `fetch`, which exists in both).
+
+**Server-side functions** (used by `src/app/api/meroshare/sync/route.ts`):
+```ts
+meroShareLogin(username, password, clientId): Promise<MeroShareSession>
+// MeroShareSession = { token: string; cookie: string }
+// JWT comes from the `Authorization` RESPONSE header, not the JSON body — check
+// res.headers.get("authorization") first, only fall back to parsing the body.
+
+getMyDetails(session): Promise<MeroShareUser>
+// MeroShareUser = { name, demat, clientCode, address }
+
+getCapitalList(): Promise<MeroShareCapital[]>
+// No auth needed. MeroShareCapital = { id, code, name } — id is the internal
+// clientId used in meroShareLogin, NOT the visible DP code shown to users.
+```
+
+`mergeCookies(jar, res)` folds a response's `Set-Cookie` headers into a running cookie-jar string; `meroShareLogin`/`getMyDetails` update `session.cookie` after every call since this WAF rotates its `TS*` tracking cookies per-response. `parseJson<T>(res, label)` reads the body as text first and throws a descriptive error (status + content-type + body snippet) if it's not valid JSON, instead of a bare "Failed to parse JSON" — this is what surfaced the actual "Request Rejected" HTML and made the WAF diagnosis possible. Keep using `parseJson` instead of `res.json()` directly anywhere new is added to this file.
+
+**Browser-side functions** (used by `src/components/MeroShareSyncDialog.tsx`, called directly from the browser — never wrap these in a server action or API route):
+```ts
+fetchMyStocksFromBrowser(token, demat, clientCode): Promise<MeroShareStock[]>
+fetchPurchaseHistoryFromBrowser(token, demat, scrip): Promise<PurchaseLot[]>
+fetchAllHoldingsFromBrowser(token, user): Promise<{ lots: EnrichedLot[]; failedScrips: string[] }>
+```
+These send only `Content-Type` + `Authorization` — no `Cookie` header (browsers forbid setting it via JS, and the real working browser request didn't send one either, confirming it isn't needed) and no manually-set `Sec-Fetch-*`/`User-Agent` (browsers also forbid overriding these — which is exactly what we want, since the browser's real values are what gets past the WAF). `fetchAllHoldingsFromBrowser` loops scrips sequentially, collecting per-scrip failures into `failedScrips` instead of throwing.
+
+`mapTransactionType(txType: string): MeroShareSource` — maps MeroShare's free-text `purchaseSource`/`historyDescription` strings to one of `IPO | FPO | RIGHT | AUCTION | MARKET | BONUS | MERGER | DEMAT`. Used both for the UI source badges in `MeroShareSyncDialog`/`TransactionTable` and as the value stored directly in `Transaction.source` (see schema enum extension above — no remapping to `PRIMARY`/`SECONDARY` needed).
+
+### `src/app/api/meroshare/sync/route.ts`
+
+`POST { username, password, clientId }` → calls `meroShareLogin` then `getMyDetails` (both server-side, both work) → returns `{ user, token }`. Does **not** fetch holdings or purchase history — that happens client-side after this response comes back. Returns `400` with `INVALID_CREDENTIALS`-derived message on bad login, `503` on any other MeroShare-side failure.
+
+### `src/components/MeroShareSyncDialog.tsx`
+
+3-step dialog (`step: "credentials" | "preview" | "done"`):
+1. **Credentials** — searchable DP picker (`DPPicker`, fed by `GET /api/meroshare/capital`) + username/password. On submit: `POST /api/meroshare/sync` for `{ user, token }`, then `fetchAllHoldingsFromBrowser(token, user)` runs **in the browser** to get `lots`/`failedScrips`.
+2. **Preview** — lots grouped by scrip (`StockSection` accordion), each lot individually selectable/deselectable, rate editable inline when MeroShare didn't supply one (`lot.rate === 0`). Submits selected lots via the `importMeroShareLots` server action.
+3. **Done** — import result summary (imported / skipped duplicates / failed).
+
+### `importMeroShareLots` (in `src/actions/transaction.ts`)
+
+```ts
+importMeroShareLots(portfolioId, lots: ImportLotInput[]): Promise<{ imported, skipped, failed }>
+```
+For each selected lot: computes `source = mapTransactionType(lot.transactionType)`, checks for an existing duplicate (`portfolioId + shareCode + transactionDate + quantity + source`), skips if found, otherwise runs `calculateCharges({ type: "BUY", source, quantity, pricePerUnit: rate })` and creates the row with `importedFrom: "MEROSHARE"`. Per-lot creation failures are caught and pushed to `failed`; the duplicate-check query is **not** wrapped in try/catch, so an invalid `source` enum value would crash the whole action rather than just skip that lot — this is exactly what happened when the generated Prisma client was stale (see the schema Gotcha above). If this action starts 500ing on import, check the generated enum before assuming the mapping logic is wrong.
