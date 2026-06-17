@@ -18,6 +18,8 @@ type TxForPL = {
   capitalGainTax: number
   quantity: number
   pricePerUnit: number
+  avgBuyCostPerUnit?: number | null
+  buyPricePerUnit?: number | null
 }
 
 export function calcPortfolioPL(
@@ -36,30 +38,35 @@ export function calcPortfolioPL(
   let totalProceeds = 0
   let totalTax = 0
   let totalCommissions = 0
-  let buyTxValue = 0
-  let sellTxValue = 0
+  let netPL = 0
+  let grossPL = 0
 
   for (const t of filtered) {
-    const txValue = t.quantity * t.pricePerUnit
     totalCommissions += t.brokerCommission + t.dpCharge + t.sebon
 
     if (t.type === "BUY") {
-      totalInvested += t.netAmount
-      buyTxValue += txValue
+      // Raw capital put in — no fees rolled in.
+      totalInvested += t.quantity * t.pricePerUnit
     } else {
       totalProceeds += t.netAmount
       totalTax += t.capitalGainTax
-      sellTxValue += txValue
+
+      // Realised P/L only — shares still held haven't been sold yet, so their
+      // cost must never be subtracted here (that would show a "loss" on money
+      // that's simply still invested, not lost).
+      const costBasis = t.avgBuyCostPerUnit ?? t.buyPricePerUnit ?? t.pricePerUnit
+      netPL += t.netAmount - costBasis * t.quantity
+      grossPL += (t.pricePerUnit - costBasis) * t.quantity
     }
   }
 
   return {
     totalInvested,
     totalProceeds,
-    grossPL: sellTxValue - buyTxValue,
+    grossPL,
     totalTax,
     totalCommissions,
-    netPL: totalProceeds - totalInvested,
+    netPL,
     txCount: filtered.length,
   }
 }

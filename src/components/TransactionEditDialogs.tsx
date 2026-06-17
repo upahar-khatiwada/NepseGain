@@ -29,18 +29,23 @@ import {
 import { Input } from "@/components/ui/input"
 import type { TransactionRow } from "@/src/components/TransactionTable"
 
-const editSchema = z.object({
-  type: z.enum(["BUY", "SELL"]),
-  source: z.enum(["PRIMARY", "SECONDARY", "MARKET", "AUCTION", "IPO", "FPO", "RIGHT", "BONUS", "MERGER", "DEMAT"]),
-  shareCode: z.string().min(1, "Required"),
-  shareName: z.string().min(1, "Required"),
-  quantity: z.coerce.number().positive("Must be positive"),
-  pricePerUnit: z.coerce.number().positive("Must be positive"),
-  buyPricePerUnit: z.coerce.number().positive("Must be positive").nullable().optional(),
-  transactionDate: z.string().min(1, "Required"),
-  daysHeld: z.coerce.number().int().nonnegative("Must be 0 or more").nullable().optional(),
-  notes: z.string().optional(),
-})
+const editSchema = z
+  .object({
+    type: z.enum(["BUY", "SELL"]),
+    source: z.enum(["PRIMARY", "SECONDARY", "MARKET", "AUCTION", "IPO", "FPO", "RIGHT", "BONUS", "MERGER", "DEMAT"]),
+    shareCode: z.string().min(1, "Required"),
+    shareName: z.string().min(1, "Required"),
+    quantity: z.coerce.number().positive("Must be positive"),
+    pricePerUnit: z.coerce.number().nonnegative("Must be 0 or more"),
+    buyPricePerUnit: z.coerce.number().positive("Must be positive").nullable().optional(),
+    transactionDate: z.string().min(1, "Required"),
+    daysHeld: z.coerce.number().int().nonnegative("Must be 0 or more").nullable().optional(),
+    notes: z.string().optional(),
+  })
+  .refine(
+    (data) => data.pricePerUnit > 0 || (data.type === "BUY" && data.source === "BONUS"),
+    { message: "Must be positive", path: ["pricePerUnit"] }
+  )
 type EditFormData = z.infer<typeof editSchema>
 
 function fmtNPR(n: number) {
@@ -108,7 +113,7 @@ export function EditTransactionDialog({
   const preview = useMemo(() => {
     const qty = Number(watchedQty)
     const price = Number(watchedPrice)
-    if (!qty || !price || isNaN(qty) || isNaN(price) || qty <= 0 || price <= 0) return null
+    if (!qty || isNaN(qty) || qty <= 0 || price == null || isNaN(price) || price < 0) return null
     return calculateCharges({
       type: watchedType,
       source: watchedType === "BUY" ? watchedSource : undefined,
@@ -224,6 +229,20 @@ export function EditTransactionDialog({
                           >
                             Primary Market (IPO)
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              field.onChange("BONUS")
+                              form.setValue("pricePerUnit", 0)
+                            }}
+                            className={`flex-1 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer ${
+                              field.value === "BONUS"
+                                ? "border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                                : "border-input bg-background text-muted-foreground hover:bg-muted"
+                            }`}
+                          >
+                            Bonus Shares
+                          </button>
                         </div>
                       </FormControl>
                       {field.value === "PRIMARY" && (
@@ -232,6 +251,15 @@ export function EditTransactionDialog({
                           <span>
                             IPO shares are allotted at issue price. No broker commission, DP
                             charge, or SEBON fee applies on primary market allotment.
+                          </span>
+                        </div>
+                      )}
+                      {field.value === "BONUS" && (
+                        <div className="flex gap-2 rounded-lg border border-emerald-200 bg-emerald-50/50 p-2.5 text-xs text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-400">
+                          <InfoIcon className="size-3.5 mt-0.5 shrink-0" />
+                          <span>
+                            Bonus shares are issued free of cost. Price per unit is fixed at
+                            NPR 0 and no broker commission, DP charge, or SEBON fee applies.
                           </span>
                         </div>
                       )}
@@ -320,7 +348,9 @@ export function EditTransactionDialog({
                           min="0"
                           step="0.01"
                           placeholder="1200.00"
+                          disabled={watchedType === "BUY" && watchedSource === "BONUS"}
                           {...field}
+                          value={watchedType === "BUY" && watchedSource === "BONUS" ? 0 : field.value}
                           onChange={(e) => field.onChange(e.target.valueAsNumber)}
                         />
                       </FormControl>

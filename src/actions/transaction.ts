@@ -10,18 +10,23 @@ import { getWeightedAverageCost } from "@/src/lib/cost-basis"
 import type { EnrichedLot } from "@/src/lib/meroshare-api"
 import { mapTransactionType } from "@/src/lib/meroshare-api"
 
-const transactionSchema = z.object({
-  type: z.enum(["BUY", "SELL"]),
-  source: z.enum(["PRIMARY", "SECONDARY", "MARKET", "AUCTION", "IPO", "FPO", "RIGHT", "BONUS", "MERGER", "DEMAT"]).default("SECONDARY"),
-  shareCode: z.string().min(1, "Share code is required"),
-  shareName: z.string().min(1, "Share name is required"),
-  quantity: z.coerce.number().positive("Quantity must be positive"),
-  pricePerUnit: z.coerce.number().positive("Price must be positive"),
-  buyPricePerUnit: z.coerce.number().positive().nullable().optional(),
-  transactionDate: z.string().min(1, "Date is required"),
-  daysHeld: z.coerce.number().int().nonnegative().nullable().optional(),
-  notes: z.string().optional(),
-})
+const transactionSchema = z
+  .object({
+    type: z.enum(["BUY", "SELL"]),
+    source: z.enum(["PRIMARY", "SECONDARY", "MARKET", "AUCTION", "IPO", "FPO", "RIGHT", "BONUS", "MERGER", "DEMAT"]).default("SECONDARY"),
+    shareCode: z.string().min(1, "Share code is required"),
+    shareName: z.string().min(1, "Share name is required"),
+    quantity: z.coerce.number().positive("Quantity must be positive"),
+    pricePerUnit: z.coerce.number().nonnegative("Price must be 0 or more"),
+    buyPricePerUnit: z.coerce.number().positive().nullable().optional(),
+    transactionDate: z.string().min(1, "Date is required"),
+    daysHeld: z.coerce.number().int().nonnegative().nullable().optional(),
+    notes: z.string().optional(),
+  })
+  .refine(
+    (data) => data.pricePerUnit > 0 || (data.type === "BUY" && data.source === "BONUS"),
+    { message: "Price must be positive", path: ["pricePerUnit"] }
+  )
 
 export type TransactionInput = z.infer<typeof transactionSchema>
 

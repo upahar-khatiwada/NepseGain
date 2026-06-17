@@ -1,6 +1,7 @@
-import { TrendingUpIcon, TrendingDownIcon, MinusIcon, ReceiptIcon, WalletIcon, ActivityIcon } from "lucide-react"
+import { TrendingUpIcon, TrendingDownIcon, MinusIcon, ReceiptIcon, WalletIcon, ActivityIcon, LockIcon } from "lucide-react"
 import { formatNPR } from "@/src/lib/nepse-calc"
 import type { PLSummary } from "@/src/lib/pl-summary"
+import type { HoldingsSummary } from "@/src/lib/stock-summary"
 
 function StatCard({
   label,
@@ -36,7 +37,13 @@ function StatCard({
   )
 }
 
-export function PLSummaryCard({ summary }: { summary: PLSummary }) {
+export function PLSummaryCard({
+  summary,
+  holdings,
+}: {
+  summary: PLSummary
+  holdings?: HoldingsSummary
+}) {
   const { netPL, totalInvested, totalTax, txCount } = summary
 
   const plColor = netPL > 0 ? "#16a34a" : netPL < 0 ? "#dc2626" : "#64748b"
@@ -50,19 +57,28 @@ export function PLSummaryCard({ summary }: { summary: PLSummary }) {
     )
 
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className={`grid grid-cols-2 gap-4 ${holdings ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}>
       <StatCard
         label="Net P/L"
         value={formatNPR(netPL)}
         color={plColor}
         icon={plIcon}
-        sub={netPL > 0 ? "Profit" : netPL < 0 ? "Loss" : "Break even"}
+        sub={netPL > 0 ? "Realised profit" : netPL < 0 ? "Realised loss" : "Break even"}
       />
       <StatCard
         label="Total Invested"
         value={formatNPR(totalInvested)}
         icon={<WalletIcon className="size-4" />}
       />
+      {holdings && (
+        <StatCard
+          label="In Hold"
+          value={formatNPR(holdings.totalValue)}
+          color="#0d9488"
+          icon={<LockIcon className="size-4" />}
+          sub={`${holdings.totalUnits.toLocaleString("en-IN")} units · ${holdings.stockCount} stock${holdings.stockCount === 1 ? "" : "s"}`}
+        />
+      )}
       <StatCard
         label="Total Tax Paid"
         value={formatNPR(totalTax)}

@@ -4,7 +4,7 @@ import { auth } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/prisma";
 import { calcPortfolioPL, calcGroupPL } from "@/src/lib/pl-summary";
 import type { TransactionSource } from "@/src/lib/nepse-calc";
-import { calcStockSummaries } from "@/src/lib/stock-summary";
+import { calcStockSummaries, calcHoldingsSummary } from "@/src/lib/stock-summary";
 import { PLSummaryCard } from "@/src/components/PLSummaryCard";
 import { DateRangeFilter } from "@/src/components/DateRangeFilter";
 import { StockBreakdownTable } from "@/src/components/StockBreakdownTable";
@@ -63,6 +63,7 @@ export default async function DashboardPage({
   const overallPL = calcGroupPL(portfoliosWithPL.map((p) => p.pl));
   const allTransactions = portfoliosWithPL.flatMap((p) => p.transactions);
   const allStockSummaries = calcStockSummaries(allTransactions);
+  const holdings = calcHoldingsSummary(allStockSummaries);
 
   const portfoliosForSection = portfoliosWithPL.map(
     ({ pl, transactions: _tx, ...p }) => ({
@@ -86,7 +87,7 @@ export default async function DashboardPage({
 
       <DateRangeFilter from={from} to={to} />
 
-      {portfolios.length > 0 && <PLSummaryCard summary={overallPL} />}
+      {portfolios.length > 0 && <PLSummaryCard summary={overallPL} holdings={holdings} />}
 
       {/* Charts row */}
       {hasSells && (

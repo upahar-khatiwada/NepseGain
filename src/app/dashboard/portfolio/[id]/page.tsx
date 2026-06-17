@@ -3,7 +3,7 @@ import { redirect, notFound } from "next/navigation"
 import { auth } from "@/src/lib/auth"
 import { prisma } from "@/src/lib/prisma"
 import { calcPortfolioPL } from "@/src/lib/pl-summary"
-import { calcStockSummaries } from "@/src/lib/stock-summary"
+import { calcStockSummaries, calcHoldingsSummary } from "@/src/lib/stock-summary"
 import { PLSummaryCard } from "@/src/components/PLSummaryCard"
 import { DateRangeFilter } from "@/src/components/DateRangeFilter"
 import { StockBreakdownTable } from "@/src/components/StockBreakdownTable"
@@ -72,6 +72,7 @@ export default async function PortfolioPage({
 
   const plSummary = calcPortfolioPL(filteredTransactions)
   const stockSummaries = calcStockSummaries(transactions)
+  const holdings = calcHoldingsSummary(stockSummaries)
   const hasSells = transactions.some((t) => t.type === "SELL")
 
   return (
@@ -102,7 +103,7 @@ export default async function PortfolioPage({
 
       <DateRangeFilter from={from} to={to} />
 
-      <PLSummaryCard summary={plSummary} />
+      <PLSummaryCard summary={plSummary} holdings={holdings} />
 
       {/* Charts */}
       {hasSells && (

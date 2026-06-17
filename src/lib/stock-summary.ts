@@ -7,12 +7,14 @@ export interface StockSummary {
   totalBought: number
   totalSold: number
   remainingUnits: number
-  totalInvested: number
+  totalInvested: number       // raw qty × price across all buys — no fees rolled in
   totalProceeds: number
   totalTaxPaid: number
   realisedPL: number
-  avgBuyCost: number
-  avgBuyDate: string | null  // ISO string weighted by quantity; null if no buys
+  avgBuyPrice: number         // weighted avg raw price per unit paid — no fees (the "actual price")
+  avgBuyCost: number          // weighted avg cost per unit incl. fees — CGT cost basis
+  avgBuyDate: string | null   // ISO string weighted by quantity; null if no buys
+  remainingValue: number      // remainingUnits × avgBuyPrice — capital still tied up, unsold
   sources: TransactionSource[]
 }
 
@@ -68,12 +70,14 @@ export function calcStockSummaries(
     const totalBought = buys.reduce((sum, t) => sum + t.quantity, 0)
     const totalSold = sells.reduce((sum, t) => sum + t.quantity, 0)
     const remainingUnits = totalBought - totalSold
-    const totalInvested = buys.reduce((sum, t) => sum + t.netAmount, 0)
+    const totalInvested = buys.reduce((sum, t) => sum + t.quantity * t.pricePerUnit, 0)
     const totalProceeds = sells.reduce((sum, t) => sum + t.netAmount, 0)
     const totalTaxPaid = sells.reduce((sum, t) => sum + t.capitalGainTax, 0)
+    const avgBuyPrice = totalBought > 0 ? totalInvested / totalBought : 0
     const avgBuyCost = getWeightedAverageCost(buys, shareCode)
     const realisedPL =
       totalSold > 0 ? totalProceeds - totalSold * avgBuyCost : 0
+    const remainingValue = remainingUnits > 0 ? remainingUnits * avgBuyPrice : 0
 
     // Weighted average buy date (by quantity)
     let avgBuyDate: string | null = null
@@ -97,11 +101,28 @@ export function calcStockSummaries(
       totalProceeds,
       totalTaxPaid,
       realisedPL,
+      avgBuyPrice,
       avgBuyCost,
       avgBuyDate,
+      remainingValue,
       sources: Array.from(sources),
     })
   }
 
   return summaries
+}
+
+export interface HoldingsSummary {
+  stockCount: number
+  totalUnits: number
+  totalValue: number  // sum of remainingValue across all open positions
+}
+
+export function calcHoldingsSummary(summaries: StockSummary[]): HoldingsSummary {
+  const open = summaries.filter((s) => s.remainingUnits > 0)
+  return {
+    stockCount: open.length,
+    totalUnits: open.reduce((sum, s) => sum + s.remainingUnits, 0),
+    totalValue: open.reduce((sum, s) => sum + s.remainingValue, 0),
+  }
 }

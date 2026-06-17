@@ -99,6 +99,9 @@ function StockRows({
           <TableCell className="text-right tabular-nums">
             {s.remainingUnits.toLocaleString("en-IN")}
           </TableCell>
+          <TableCell className="text-right tabular-nums">
+            {s.avgBuyPrice > 0 ? formatNPR(s.avgBuyPrice) : "—"}
+          </TableCell>
           <TableCell className="text-right tabular-nums text-muted-foreground">
             {s.avgBuyCost > 0 ? formatNPR(s.avgBuyCost) : "—"}
           </TableCell>
@@ -343,7 +346,8 @@ export function StockBreakdownTable({
               <TableHead className="text-right"><SortButton label="Bought" colKey="totalBought" /></TableHead>
               <TableHead className="text-right">Sold</TableHead>
               <TableHead className="text-right"><SortButton label="Remaining" colKey="remainingUnits" /></TableHead>
-              <TableHead className="text-right">Avg Cost</TableHead>
+              <TableHead className="text-right" title="Weighted average price actually paid per unit — excludes fees">Buy Price</TableHead>
+              <TableHead className="text-right" title="Weighted average cost per unit including broker commission, DP charge, and SEBON — used for capital gains tax">Avg Cost</TableHead>
               <TableHead className="text-right"><SortButton label="Realised P/L" colKey="realisedPL" /></TableHead>
               <TableHead className="text-right">Tax Paid</TableHead>
               <TableHead>Source</TableHead>
