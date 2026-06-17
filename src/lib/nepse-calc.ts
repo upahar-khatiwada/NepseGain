@@ -1,6 +1,6 @@
 export type TransactionType = "BUY" | "SELL"
 export type TransactionSource =
-  | "PRIMARY"    // legacy: DP waived, broker+SEBON apply
+  | "PRIMARY"    // legacy: no charges (primary market issue)
   | "SECONDARY"  // legacy: full charges
   | "MARKET"     // MeroShare: secondary market — full charges
   | "AUCTION"    // MeroShare: auction — full charges
@@ -11,7 +11,7 @@ export type TransactionSource =
   | "MERGER"     // MeroShare: no charges
   | "DEMAT"      // MeroShare: no charges
 
-const NO_CHARGE_SOURCES: TransactionSource[] = ["IPO", "FPO", "RIGHT", "BONUS", "MERGER", "DEMAT"]
+const NO_CHARGE_SOURCES: TransactionSource[] = ["PRIMARY", "IPO", "FPO", "RIGHT", "BONUS", "MERGER", "DEMAT"]
 const NO_DP_SOURCES: TransactionSource[] = ["PRIMARY", "IPO", "FPO", "RIGHT", "BONUS", "MERGER", "DEMAT"]
 
 export interface ChargeInput {

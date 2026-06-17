@@ -270,6 +270,19 @@ All charge fields are **computed at save time** and stored on the `Transaction` 
 const txValue = quantity * pricePerShare   // before any charges
 ```
 
+### Primary market BUYs are charge-free
+
+Any BUY whose `source` is a primary-market value — `PRIMARY` (legacy manual entry) or one of the
+MeroShare-derived `IPO | FPO | RIGHT | BONUS | MERGER | DEMAT` sources — pays **zero** broker
+commission, DP charge, and SEBON fee. Only `SECONDARY`/`MARKET` (ordinary exchange trades) and
+`AUCTION` incur the charges below. This reflects that primary allotments are issued directly by
+the company/registrar, not traded through a broker on the exchange.
+
+```ts
+const NO_CHARGE_SOURCES = ["PRIMARY", "IPO", "FPO", "RIGHT", "BONUS", "MERGER", "DEMAT"]
+const isNoCharge = source && NO_CHARGE_SOURCES.includes(source) && type === "BUY"
+```
+
 ### Broker commission (tiered on `txValue`)
 
 | Bracket | Rate env var | Rate |
@@ -279,26 +292,32 @@ const txValue = quantity * pricePerShare   // before any charges
 | `txValue > 500,000` | `NEXT_PUBLIC_BROKER_RATE_ABOVE_500K` | 0.34% |
 
 The entire `txValue` is multiplied by the single applicable rate — brackets are **not** stacked.
+Zero when `isNoCharge` (see above).
 
 ```ts
 const rate =
   txValue <= 50_000   ? +process.env.NEXT_PUBLIC_BROKER_RATE_UPTO_50K! :
   txValue <= 500_000  ? +process.env.NEXT_PUBLIC_BROKER_RATE_50K_500K! :
                         +process.env.NEXT_PUBLIC_BROKER_RATE_ABOVE_500K!
-const brokerCommission = txValue * rate
+const brokerCommission = isNoCharge ? 0 : txValue * rate
 ```
 
 ### SEBON fee
 
+Zero when `isNoCharge` (see above).
+
 ```ts
-const sebon = txValue * +process.env.NEXT_PUBLIC_SEBON_RATE!   // 0.015%
+const sebon = isNoCharge ? 0 : txValue * +process.env.NEXT_PUBLIC_SEBON_RATE!   // 0.015%
 ```
 
 ### DP charge
 
+DP charge is waived for the same primary-market BUY sources (tracked separately as
+`NO_DP_SOURCES`, which happens to be identical to `NO_CHARGE_SOURCES` today — kept as two
+constants in `nepse-calc.ts` since DP-only waivers were the original/legacy behavior).
+
 ```ts
-// PRIMARY BUY (IPO allotment): DP charge is waived
-const dpCharge = (source === "PRIMARY" && type === "BUY")
+const dpCharge = (source && NO_DP_SOURCES.includes(source) && type === "BUY")
   ? 0
   : +process.env.NEXT_PUBLIC_DP_CHARGE!   // flat NPR 25 otherwise
 ```
@@ -748,7 +767,7 @@ Server component (no `"use client"`). Props: `{ summary: PLSummary }`.
 
 Stored on every Transaction row (`@default(SECONDARY)`). Only meaningful for BUY rows; SELL rows are always `SECONDARY`.
 
-- **`PRIMARY`** — IPO / rights allotment from the primary market. DP charge is waived (stored as `dpCharge = 0`). Broker commission and SEBON still apply.
+- **`PRIMARY`** — IPO / rights allotment from the primary market. No charges at all: broker commission, DP charge, and SEBON are all `0` (see [NEPSE Calculation Rules](#nepse-calculation-rules) above).
 - **`SECONDARY`** — Normal exchange trade. Full charges apply.
 
 ### Source toggle in `AddTransactionDialog` and `EditTransactionDialog`

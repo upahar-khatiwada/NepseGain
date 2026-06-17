@@ -213,8 +213,8 @@ export function AddTransactionDialog({ portfolioId }: { portfolioId: string }) {
                           <div className="flex gap-2 rounded-lg border border-blue-200 bg-blue-50/50 p-2.5 text-xs text-blue-700 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-400">
                             <InfoIcon className="size-3.5 mt-0.5 shrink-0" />
                             <span>
-                              IPO shares are allotted at issue price. Broker commission and SEBON
-                              still apply but DP charge is waived on IPO allotment.
+                              IPO shares are allotted at issue price. No broker commission, DP
+                              charge, or SEBON fee applies on primary market allotment.
                             </span>
                           </div>
                         )}

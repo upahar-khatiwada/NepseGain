@@ -162,7 +162,7 @@ export default async function PortfolioPage({
               <p className="text-sm text-slate-500">No transactions yet. Add your first buy or sell.</p>
             </div>
           ) : (
-            <StockBreakdownTable summaries={stockSummaries} portfolioId={id} />
+            <StockBreakdownTable summaries={stockSummaries} portfolioId={id} transactions={transactions} />
           )}
         </TabsContent>
 

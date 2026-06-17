@@ -1,11 +1,20 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { ArrowUpDownIcon, ChevronDownIcon } from "lucide-react"
+import { ArrowUpDownIcon, ChevronDownIcon, PencilIcon, Trash2Icon } from "lucide-react"
 import type { StockSummary } from "@/src/lib/stock-summary"
 import type { TransactionSource } from "@/src/lib/nepse-calc"
 import { formatNPR } from "@/src/lib/nepse-calc"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import {
   Table,
   TableBody,
@@ -15,6 +24,8 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { SellDialog } from "@/src/components/SellDialog"
+import { fmtDate, fmtNPR, SourceBadge as TxSourceBadge, type TransactionRow } from "@/src/components/TransactionTable"
+import { EditTransactionDialog, DeleteConfirmDialog } from "@/src/components/TransactionEditDialogs"
 
 const SOURCE_BADGE: Record<TransactionSource, { label: string; className: string }> = {
   PRIMARY:   { label: "IPO",       className: "bg-purple-500/10 text-purple-700 border-transparent" },
@@ -50,11 +61,15 @@ type SortKey = "realisedPL" | "shareCode" | "remainingUnits" | "totalBought"
 function StockRows({
   rows,
   onSell,
+  onEdit,
   portfolioId,
+  hasTransactions,
 }: {
   rows: StockSummary[]
   onSell: (s: StockSummary) => void
+  onEdit: (s: StockSummary) => void
   portfolioId?: string
+  hasTransactions: boolean
 }) {
   return (
     <>
@@ -113,24 +128,38 @@ function StockRows({
           </TableCell>
           {portfolioId && (
             <TableCell>
-              {s.remainingUnits > 0 && (
-                <button
-                  type="button"
-                  onClick={() => onSell(s)}
-                  className="cursor-pointer rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
-                  style={{ backgroundColor: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca" }}
-                  onMouseOver={(e) => {
-                    e.currentTarget.style.backgroundColor = "#dc2626"
-                    e.currentTarget.style.color = "white"
-                  }}
-                  onMouseOut={(e) => {
-                    e.currentTarget.style.backgroundColor = "#fef2f2"
-                    e.currentTarget.style.color = "#dc2626"
-                  }}
-                >
-                  Sell
-                </button>
-              )}
+              <div className="flex items-center justify-end gap-1.5">
+                {hasTransactions && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="cursor-pointer"
+                    onClick={() => onEdit(s)}
+                  >
+                    <PencilIcon className="size-3.5" />
+                    <span className="sr-only">Edit</span>
+                  </Button>
+                )}
+                {s.remainingUnits > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => onSell(s)}
+                    className="cursor-pointer rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
+                    style={{ backgroundColor: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca" }}
+                    onMouseOver={(e) => {
+                      e.currentTarget.style.backgroundColor = "#dc2626"
+                      e.currentTarget.style.color = "white"
+                    }}
+                    onMouseOut={(e) => {
+                      e.currentTarget.style.backgroundColor = "#fef2f2"
+                      e.currentTarget.style.color = "#dc2626"
+                    }}
+                  >
+                    Sell
+                  </button>
+                )}
+              </div>
             </TableCell>
           )}
         </TableRow>
@@ -139,16 +168,121 @@ function StockRows({
   )
 }
 
+// ─── Edit holding dialog — lists & edits underlying lots for one share ──────
+
+function EditHoldingDialog({
+  stock,
+  transactions,
+  onClose,
+}: {
+  stock: StockSummary
+  transactions: TransactionRow[]
+  onClose: () => void
+}) {
+  const [editTx, setEditTx] = useState<TransactionRow | null>(null)
+  const [deleteTxId, setDeleteTxId] = useState<string | null>(null)
+
+  const lots = useMemo(
+    () =>
+      transactions
+        .filter((t) => t.shareCode === stock.shareCode)
+        .sort((a, b) => new Date(b.transactionDate).getTime() - new Date(a.transactionDate).getTime()),
+    [transactions, stock.shareCode]
+  )
+
+  return (
+    <>
+      <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{stock.shareCode} — Edit Lots</DialogTitle>
+          </DialogHeader>
+
+          <div className="overflow-x-auto rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Source</TableHead>
+                  <TableHead className="text-right">Qty</TableHead>
+                  <TableHead className="text-right">Price</TableHead>
+                  <TableHead className="text-right">Net Amount</TableHead>
+                  <TableHead />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {lots.map((tx) => (
+                  <TableRow key={tx.id}>
+                    <TableCell className="text-muted-foreground">{fmtDate(tx.transactionDate)}</TableCell>
+                    <TableCell>
+                      {tx.type === "BUY" ? (
+                        <Badge className="bg-emerald-500/10 text-emerald-700 border-transparent">BUY</Badge>
+                      ) : (
+                        <Badge variant="destructive">SELL</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell>{tx.type === "BUY" && <TxSourceBadge source={tx.source} />}</TableCell>
+                    <TableCell className="text-right tabular-nums">{tx.quantity.toLocaleString("en-IN")}</TableCell>
+                    <TableCell className="text-right tabular-nums">{fmtNPR(tx.pricePerUnit)}</TableCell>
+                    <TableCell className="text-right tabular-nums font-medium">{fmtNPR(tx.netAmount)}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          className="cursor-pointer"
+                          onClick={() => setEditTx(tx)}
+                        >
+                          <PencilIcon className="size-3.5" />
+                          <span className="sr-only">Edit</span>
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          className="cursor-pointer text-destructive hover:text-destructive"
+                          onClick={() => setDeleteTxId(tx.id)}
+                        >
+                          <Trash2Icon className="size-3.5" />
+                          <span className="sr-only">Delete</span>
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" type="button" className="cursor-pointer" />}>
+              Close
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <EditTransactionDialog tx={editTx} onClose={() => setEditTx(null)} />
+      <DeleteConfirmDialog txId={deleteTxId} onClose={() => setDeleteTxId(null)} />
+    </>
+  )
+}
+
 export function StockBreakdownTable({
   summaries,
   portfolioId,
+  transactions,
 }: {
   summaries: StockSummary[]
   portfolioId?: string
+  transactions?: TransactionRow[]
 }) {
-  const [sortKey, setSortKey] = useState<SortKey>("realisedPL")
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc")
+  const [sortKey, setSortKey] = useState<SortKey>("shareCode")
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc")
   const [sellTarget, setSellTarget] = useState<StockSummary | null>(null)
+  const [editTarget, setEditTarget] = useState<StockSummary | null>(null)
   const [closedOpen, setClosedOpen] = useState(false)
 
   function handleSort(key: SortKey) {
@@ -217,7 +351,13 @@ export function StockBreakdownTable({
             </TableRow>
           </TableHeader>
           <TableBody>
-            <StockRows rows={open} onSell={setSellTarget} portfolioId={portfolioId} />
+            <StockRows
+              rows={open}
+              onSell={setSellTarget}
+              onEdit={setEditTarget}
+              portfolioId={portfolioId}
+              hasTransactions={!!transactions}
+            />
           </TableBody>
         </Table>
       </div>
@@ -239,7 +379,13 @@ export function StockBreakdownTable({
             <div className="overflow-x-auto rounded-xl border border-dashed border-slate-200 opacity-70">
               <Table>
                 <TableBody>
-                  <StockRows rows={closed} onSell={setSellTarget} portfolioId={portfolioId} />
+                  <StockRows
+                    rows={closed}
+                    onSell={setSellTarget}
+                    onEdit={setEditTarget}
+                    portfolioId={portfolioId}
+                    hasTransactions={!!transactions}
+                  />
                 </TableBody>
               </Table>
             </div>
@@ -254,6 +400,15 @@ export function StockBreakdownTable({
           portfolioId={portfolioId}
           open={!!sellTarget}
           onClose={() => setSellTarget(null)}
+        />
+      )}
+
+      {/* Edit holding dialog */}
+      {transactions && editTarget && (
+        <EditHoldingDialog
+          stock={editTarget}
+          transactions={transactions}
+          onClose={() => setEditTarget(null)}
         />
       )}
     </>
