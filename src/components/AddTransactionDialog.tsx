@@ -30,7 +30,7 @@ import { Input } from "@/components/ui/input"
 
 const schema = z.object({
   type: z.enum(["BUY", "SELL"]),
-  source: z.enum(["PRIMARY", "SECONDARY"]).default("SECONDARY"),
+  source: z.enum(["PRIMARY", "SECONDARY"]),
   shareCode: z.string().min(1, "Required"),
   shareName: z.string().min(1, "Required"),
   quantity: z.coerce.number().positive("Must be positive"),
