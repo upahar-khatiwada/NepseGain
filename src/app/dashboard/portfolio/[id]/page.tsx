@@ -7,6 +7,9 @@ import { calcStockSummaries } from "@/src/lib/stock-summary"
 import { PLSummaryCard } from "@/src/components/PLSummaryCard"
 import { DateRangeFilter } from "@/src/components/DateRangeFilter"
 import { StockBreakdownTable } from "@/src/components/StockBreakdownTable"
+import { PLBarChart } from "@/src/components/charts/PLBarChart"
+import { PLTrendLine } from "@/src/components/charts/PLTrendLine"
+import { PortfolioPieChart } from "@/src/components/charts/PortfolioPieChart"
 import { PortfolioActions } from "./_components/portfolio-actions"
 import { AddTransactionDialog } from "@/src/components/AddTransactionDialog"
 import {
@@ -66,25 +69,21 @@ export default async function PortfolioPage({
   })
 
   const plSummary = calcPortfolioPL(filteredTransactions)
-
-  // Holdings always uses all transactions (unfiltered) — positions are a current-state view
   const stockSummaries = calcStockSummaries(transactions)
+  const hasSells = transactions.some((t) => t.type === "SELL")
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-8">
+    <div className="p-6 max-w-5xl mx-auto space-y-6">
+      {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold">{portfolio.name}</h1>
+          <h1 className="text-2xl font-bold text-slate-800">{portfolio.name}</h1>
           {portfolio.description && (
-            <p className="text-sm text-muted-foreground mt-1">
-              {portfolio.description}
-            </p>
+            <p className="text-sm text-slate-500 mt-1">{portfolio.description}</p>
           )}
           {(portfolio.brokerName || portfolio.dematNumber) && (
-            <p className="text-sm text-muted-foreground mt-0.5">
-              {[portfolio.brokerName, portfolio.dematNumber]
-                .filter(Boolean)
-                .join(" · ")}
+            <p className="text-sm text-slate-400 mt-0.5">
+              {[portfolio.brokerName, portfolio.dematNumber].filter(Boolean).join(" · ")}
             </p>
           )}
         </div>
@@ -103,6 +102,34 @@ export default async function PortfolioPage({
 
       <PLSummaryCard summary={plSummary} />
 
+      {/* Charts */}
+      {hasSells && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="rounded-xl bg-white border border-slate-100 shadow-sm p-5">
+            <h3 className="text-sm font-semibold text-slate-600 uppercase tracking-wide mb-4">
+              Monthly P/L
+            </h3>
+            <PLBarChart transactions={transactions} />
+          </div>
+          <div className="rounded-xl bg-white border border-slate-100 shadow-sm p-5">
+            <h3 className="text-sm font-semibold text-slate-600 uppercase tracking-wide mb-4">
+              Cumulative P/L
+            </h3>
+            <PLTrendLine transactions={transactions} />
+          </div>
+        </div>
+      )}
+
+      {stockSummaries.filter((s) => s.totalInvested > 0).length >= 2 && (
+        <div className="rounded-xl bg-white border border-slate-100 shadow-sm p-5">
+          <h3 className="text-sm font-semibold text-slate-600 uppercase tracking-wide mb-4">
+            Investment Distribution
+          </h3>
+          <PortfolioPieChart summaries={stockSummaries} />
+        </div>
+      )}
+
+      {/* Tabs */}
       <Tabs defaultValue="holdings">
         <TabsList>
           <TabsTrigger value="holdings">Holdings</TabsTrigger>
@@ -117,19 +144,39 @@ export default async function PortfolioPage({
         </TabsList>
 
         <TabsContent value="holdings" className="mt-4">
-          <StockBreakdownTable summaries={stockSummaries} />
+          {stockSummaries.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
+              <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect width="64" height="64" rx="14" fill="#f8fafc" />
+                <rect x="10" y="38" width="10" height="16" rx="2" fill="#cbd5e1" />
+                <rect x="24" y="28" width="10" height="26" rx="2" fill="#94a3b8" />
+                <rect x="38" y="18" width="10" height="36" rx="2" fill="#64748b" />
+                <path d="M15 35 L29 25 L43 15" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+              <p className="text-sm text-slate-500">No transactions yet. Add your first buy or sell.</p>
+              <AddTransactionDialog portfolioId={id} />
+            </div>
+          ) : (
+            <StockBreakdownTable summaries={stockSummaries} />
+          )}
         </TabsContent>
 
         <TabsContent value="transactions" className="mt-4">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="font-medium text-sm text-muted-foreground">
+            <h2 className="font-medium text-sm text-slate-500">
               {filteredTransactions.length === 0
                 ? "No transactions in this range"
                 : `${filteredTransactions.length} transaction${filteredTransactions.length !== 1 ? "s" : ""}`}
             </h2>
             <AddTransactionDialog portfolioId={id} />
           </div>
-          <TransactionTable transactions={filteredTransactions} />
+          {filteredTransactions.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-200 py-14 text-center">
+              <p className="text-sm text-slate-400">No transactions yet. Add your first buy or sell.</p>
+            </div>
+          ) : (
+            <TransactionTable transactions={filteredTransactions} />
+          )}
         </TabsContent>
       </Tabs>
     </div>

@@ -6,17 +6,10 @@ import { useRouter } from "next/navigation"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { PlusIcon } from "lucide-react"
+import { PlusIcon, TrendingUpIcon, TrendingDownIcon } from "lucide-react"
 import { toast } from "sonner"
 import { createPortfolio } from "@/src/actions/portfolio"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from "@/components/ui/card"
 import {
   Dialog,
   DialogContent,
@@ -53,12 +46,46 @@ type Portfolio = {
 
 function formatNPR(amount: number) {
   if (amount === 0) return "NPR 0"
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "NPR",
+  const abs = Math.abs(amount)
+  const formatted = new Intl.NumberFormat("en-IN", {
     maximumFractionDigits: 0,
     minimumFractionDigits: 0,
-  }).format(amount)
+  }).format(abs)
+  return `${amount < 0 ? "-" : ""}NPR ${formatted}`
+}
+
+function EmptyState({ onAdd }: { onAdd: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-20 text-center gap-5">
+      {/* Inline SVG illustration */}
+      <svg width="96" height="96" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="96" height="96" rx="20" fill="#f0fdf4" />
+        <rect x="16" y="56" width="14" height="24" rx="3" fill="#0d9488" fillOpacity="0.3" />
+        <rect x="36" y="40" width="14" height="40" rx="3" fill="#0d9488" fillOpacity="0.6" />
+        <rect x="56" y="28" width="14" height="52" rx="3" fill="#0d9488" />
+        <polyline points="23,52 43,36 63,24" stroke="#16a34a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx="23" cy="52" r="3" fill="#16a34a" />
+        <circle cx="43" cy="36" r="3" fill="#16a34a" />
+        <circle cx="63" cy="24" r="3" fill="#16a34a" />
+      </svg>
+
+      <div>
+        <h2 className="text-lg font-semibold text-slate-800 mb-1">No portfolios yet</h2>
+        <p className="text-slate-500 text-sm max-w-xs">
+          Add your first portfolio to get started tracking your NEPSE investments.
+        </p>
+      </div>
+
+      <button
+        onClick={onAdd}
+        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium text-sm text-white cursor-pointer transition-opacity hover:opacity-90"
+        style={{ backgroundColor: "#0d9488" }}
+      >
+        <PlusIcon className="size-4" />
+        Add your first portfolio
+      </button>
+    </div>
+  )
 }
 
 export function AddPortfolioSection({
@@ -99,76 +126,72 @@ export function AddPortfolioSection({
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-semibold">All Portfolios</h1>
-        <Button
+      <div className="flex items-center justify-between mb-5">
+        <h2 className="text-lg font-semibold text-slate-800">Portfolios</h2>
+        <button
           onClick={() => setOpen(true)}
-          className="gap-1.5 cursor-pointer"
+          className="inline-flex items-center gap-1.5 px-4 h-9 rounded-xl font-medium text-sm text-white cursor-pointer transition-opacity hover:opacity-90"
+          style={{ backgroundColor: "#0d9488" }}
         >
           <PlusIcon className="size-4" />
           Add Portfolio
-        </Button>
+        </button>
       </div>
 
       {portfolios.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
-          <p className="text-muted-foreground text-sm">
-            No portfolios yet. Add one to get started.
-          </p>
-          <Button
-            variant="outline"
-            onClick={() => setOpen(true)}
-            className="cursor-pointer gap-1.5"
-          >
-            <PlusIcon className="size-4" />
-            Add Portfolio
-          </Button>
-        </div>
+        <EmptyState onAdd={() => setOpen(true)} />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {portfolios.map((p) => (
-            <Link
-              key={p.id}
-              href={`/dashboard/portfolio/${p.id}`}
-              className="cursor-pointer group"
-            >
-              <Card className="h-full transition-all group-hover:ring-2 group-hover:ring-primary/30">
-                <CardHeader>
-                  <CardTitle>{p.name}</CardTitle>
-                  {p.brokerName && (
-                    <CardDescription>{p.brokerName}</CardDescription>
-                  )}
-                </CardHeader>
-                <CardContent className="grid gap-2 text-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Invested</span>
-                    <span className="font-medium tabular-nums">
-                      {formatNPR(p.totalInvested)}
-                    </span>
+          {portfolios.map((p) => {
+            const isProfit = p.netPL > 0
+            const isLoss = p.netPL < 0
+            const plColor = isProfit ? "#16a34a" : isLoss ? "#dc2626" : "#64748b"
+            const PlIcon = isProfit ? TrendingUpIcon : TrendingDownIcon
+
+            return (
+              <Link
+                key={p.id}
+                href={`/dashboard/portfolio/${p.id}`}
+                className="group cursor-pointer"
+              >
+                <div className="h-full bg-white rounded-2xl border border-slate-100 shadow-sm p-5 transition-all group-hover:shadow-md group-hover:border-slate-200">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="min-w-0">
+                      <h3 className="font-semibold text-slate-800 truncate">{p.name}</h3>
+                      {p.brokerName && (
+                        <p className="text-xs text-slate-400 mt-0.5 truncate">{p.brokerName}</p>
+                      )}
+                    </div>
+                    {p.netPL !== 0 && (
+                      <span
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold shrink-0 ml-2"
+                        style={{
+                          backgroundColor: `${plColor}18`,
+                          color: plColor,
+                        }}
+                      >
+                        <PlIcon className="size-3" />
+                        {isProfit ? "+" : ""}{formatNPR(p.netPL)}
+                      </span>
+                    )}
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Net P/L</span>
-                    <span
-                      className="font-medium tabular-nums"
-                      style={
-                        p.netPL > 0
-                          ? { color: "#16a34a" }
-                          : p.netPL < 0
-                            ? { color: "#dc2626" }
-                            : { color: "var(--muted-foreground)" }
-                      }
-                    >
-                      {formatNPR(p.netPL)}
-                    </span>
+
+                  <div className="space-y-2 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400">Invested</span>
+                      <span className="font-medium text-slate-700 tabular-nums">
+                        {formatNPR(p.totalInvested)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400">Transactions</span>
+                      <span className="text-slate-600 tabular-nums">{p.transactionCount}</span>
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Transactions</span>
-                    <span className="tabular-nums">{p.transactionCount}</span>
-                  </div>
-                </CardContent>
-              </Card>
-            </Link>
-          ))}
+                </div>
+              </Link>
+            )
+          })}
         </div>
       )}
 
@@ -213,10 +236,7 @@ export function AddPortfolioSection({
                     <FormItem>
                       <FormLabel>Broker Name</FormLabel>
                       <FormControl>
-                        <Input
-                          placeholder="e.g. Siddhartha Securities"
-                          {...field}
-                        />
+                        <Input placeholder="e.g. Siddhartha Securities" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -237,11 +257,7 @@ export function AddPortfolioSection({
                 />
               </div>
               <DialogFooter>
-                <Button
-                  type="submit"
-                  disabled={pending}
-                  className="cursor-pointer"
-                >
+                <Button type="submit" disabled={pending} className="cursor-pointer">
                   {pending ? "Creating…" : "Create Portfolio"}
                 </Button>
               </DialogFooter>

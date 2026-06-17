@@ -891,3 +891,88 @@ The P/L summary card and DateRangeFilter remain above the tabs and continue to a
 - Adds `shareCode`, `shareName`, `source` to the Prisma `select` for transactions (needed for `calcStockSummaries`).
 - Flattens all transactions from all portfolios, passes to `calcStockSummaries` to get a cross-portfolio holdings view.
 - Renders `<StockBreakdownTable summaries={allStockSummaries} />` below `AddPortfolioSection`, only when there are transactions.
+
+---
+
+## UI Redesign & Charts (added in Prompt 10)
+
+### Color system
+
+| Purpose | Hex | Tailwind approx |
+|---|---|---|
+| Profit | `#16a34a` | green-600 |
+| Loss | `#dc2626` | red-600 |
+| Neutral | `#64748b` | slate-500 |
+| Primary/Teal | `#0d9488` | teal-600 |
+| Dark sidebar bg | `#0f172a` | slate-900 |
+| Light content bg | `#f8fafc` | slate-50 |
+
+Use inline `style={{ color: "#16a34a" }}` for profit/loss coloring (avoids Tailwind v4 purge issues with dynamic classes).
+
+### Sidebar redesign
+
+`src/app/dashboard/layout.tsx` — desktop aside and mobile header use `style={{ backgroundColor: "#0f172a" }}`. Portfolio links styled with `text-slate-400 hover:bg-white/5 hover:text-white`. The "Add Portfolio" link uses `style={{ backgroundColor: "#0d9488", color: "white" }}` directly.
+
+`SignOutButton` was rewritten as a plain `<button>` (no `Button` component) with dark-sidebar-aware styling (`text-slate-400 hover:bg-white/5 hover:text-white`).
+
+`MobileSidebar` `SheetContent` uses `style={{ backgroundColor: "#0f172a", borderColor: "#1e293b" }}` for the dark drawer.
+
+The main content `<main>` has `style={{ backgroundColor: "#f8fafc" }}`.
+
+### `PLSummaryCard` — hero stats row
+
+Replaced the single card layout with a `grid grid-cols-2 lg:grid-cols-4` of `StatCard` components. Stats shown:
+1. **Net P/L** — colored green/red, `TrendingUpIcon` / `TrendingDownIcon`
+2. **Total Invested** — `WalletIcon`
+3. **Total Tax Paid** — `ReceiptIcon`
+4. **Transactions** — `ActivityIcon`
+
+Each card: white bg, `border-slate-100 shadow-sm`, icon in a tinted rounded square.
+
+### Greeting component
+
+`src/app/dashboard/_components/greeting.tsx` — client component. Receives `name: string | null` and `image: string | null` from the server page (session). Shows "Good morning/afternoon/evening, [FirstName]" based on `new Date().getHours()`. Profile picture via `next/image`.
+
+Dashboard page passes `session.user.name` and `session.user.image` to `<Greeting>`.
+
+### Sign-in page — split layout
+
+Full-screen `min-h-screen flex`. Left half (`hidden lg:flex`, bg `#0f172a`): app name + tagline + Nepal flag emoji. Right half (`flex-1`, bg `#f8fafc`): centered card with Google sign-in button using the official Google logo SVG (4-color paths). No shadcn `Card` component — plain `div` with rounded-2xl styling.
+
+### Portfolio cards — `AddPortfolioSection`
+
+Cards updated to `bg-white rounded-2xl border-slate-100 shadow-sm` with `group-hover:shadow-md`. A colored P/L badge (green/red pill with `TrendingUpIcon`/`TrendingDownIcon`) appears in the top-right of each card when `netPL !== 0`. Badge uses inline `style={{ backgroundColor: \`${plColor}18\`, color: plColor }}`.
+
+**Empty state**: inline SVG bar chart illustration + "Add your first portfolio" CTA button with teal bg.
+
+### Recharts charts — `src/components/charts/`
+
+Three client components; all require `"use client"`. Installed via `bun add recharts@3.8.1`.
+
+#### `PLBarChart.tsx`
+Props: `{ transactions: ChartTx[] }` where `ChartTx = { type, transactionDate, netAmount, quantity, avgBuyCostPerUnit, buyPricePerUnit }`.
+
+Groups SELL transactions by month (`"Jan '25"` format). Per-sell P/L = `netAmount - (avgBuyCostPerUnit ?? buyPricePerUnit ?? 0) * quantity`. Green bars for profit months, red for loss. Custom tooltip with `formatNPR`. Y-axis abbreviated (`k`/`M` suffix).
+
+#### `PortfolioPieChart.tsx`
+Props: `{ summaries: StockSummary[] }`. Renders only when ≥ 2 stocks with `totalInvested > 0`. Donut chart (innerRadius 55, outerRadius 90). 8-color palette starting with teal. Custom tooltip shows stock name, NPR amount, and % of portfolio. Custom legend rendered as inline flex badges.
+
+#### `PLTrendLine.tsx`
+Props: `{ transactions: ChartTx[] }`. Cumulative sum of per-sell P/L over time. Line color = green if last value ≥ 0, else red. `ReferenceLine y={0}` as a dashed gray baseline. Dot on each SELL. X-axis shows `MM-DD` of each sell date.
+
+### Where charts appear
+
+**Dashboard page** (`src/app/dashboard/page.tsx`):
+- `avgBuyCostPerUnit` and `buyPricePerUnit` added to the Prisma `select`.
+- If any SELL transactions exist: 2-column grid with `PLTrendLine` (left) and `PortfolioPieChart` (right, only if ≥ 2 stocks).
+
+**Portfolio page** (`src/app/dashboard/portfolio/[id]/page.tsx`):
+- If any SELL transactions: 2-column grid with `PLBarChart` + `PLTrendLine`.
+- `PortfolioPieChart` shown separately below (if ≥ 2 stocks).
+- Charts use ALL transactions (unfiltered by date) to show all-time history.
+
+### Empty states (updated)
+
+- No portfolios: SVG bar-chart-with-trendline illustration + "Add your first portfolio" teal button.
+- Holdings tab with no transactions: small bar chart SVG + "No transactions yet. Add your first buy or sell." + `AddTransactionDialog` button.
+- Transactions tab with 0 results: dashed border empty box with text prompt.
