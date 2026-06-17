@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import {
   meroShareLogin,
-  fetchAllHoldings,
+  getMyDetails,
   type MeroShareSession,
 } from "@/src/lib/meroshare-api";
 
@@ -10,7 +10,6 @@ export async function POST(req: NextRequest) {
     username?: string;
     password?: string;
     clientId?: number;  // internal DP id (from capital list), NOT the visible code
-    portfolioId?: string;
   };
   try {
     body = await req.json();
@@ -50,10 +49,13 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { user, lots, failedScrips } = await fetchAllHoldings(session);
-    return NextResponse.json({ user, lots, failedScrips });
+    const user = await getMyDetails(session);
+    // meroShareView/* and myPurchase/* are behind a WAF policy that blocks
+    // server-side requests regardless of headers (see meroshare-api.ts) —
+    // the browser fetches holdings/purchase history directly using this token.
+    return NextResponse.json({ user, token: session.token });
   } catch (err) {
-    console.error("[meroshare/sync] fetchAllHoldings failed:", err);
+    console.error("[meroshare/sync] getMyDetails failed:", err);
     return NextResponse.json(
       { error: "Could not reach MeroShare. Try again." },
       { status: 503 },

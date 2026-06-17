@@ -14,8 +14,8 @@ import {
   SearchIcon,
 } from "lucide-react"
 import { importMeroShareLots } from "@/src/actions/transaction"
-import type { EnrichedLot, MeroShareCapital } from "@/src/lib/meroshare-api"
-import { mapTransactionType } from "@/src/lib/meroshare-api"
+import type { EnrichedLot, MeroShareCapital, MeroShareUser } from "@/src/lib/meroshare-api"
+import { mapTransactionType, fetchAllHoldingsFromBrowser } from "@/src/lib/meroshare-api"
 import { formatNPR } from "@/src/lib/nepse-calc"
 import { Button } from "@/components/ui/button"
 import {
@@ -365,7 +365,7 @@ export function MeroShareSyncDialog({
       const res = await fetch("/api/meroshare/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientId: selectedCapital.id, username, password, portfolioId }),
+        body: JSON.stringify({ clientId: selectedCapital.id, username, password }),
       })
 
       const data = await res.json()
@@ -375,9 +375,15 @@ export function MeroShareSyncDialog({
         return
       }
 
-      setFetchStatus(`Fetching purchase history for ${data.lots.length} lots…`)
+      setFetchStatus("Fetching your holdings and purchase history…")
 
-      const previewLots: PreviewLot[] = (data.lots as EnrichedLot[]).map((lot) => ({
+      // These two calls run directly in the browser (not via our server) —
+      // MeroShare's WAF blocks server-originated requests to these specific
+      // endpoints regardless of headers, but allows real browser requests.
+      const { lots: rawLots, failedScrips: stockFailures } =
+        await fetchAllHoldingsFromBrowser(data.token as string, data.user as MeroShareUser)
+
+      const previewLots: PreviewLot[] = rawLots.map((lot) => ({
         ...lot,
         key: lotKey(lot),
         editedRate: null,
@@ -385,7 +391,7 @@ export function MeroShareSyncDialog({
       }))
 
       setLots(previewLots)
-      setFailedScrips(data.failedScrips ?? [])
+      setFailedScrips(stockFailures)
       setStep("preview")
     } catch {
       setFetchError("Could not reach MeroShare. Check your internet connection and try again.")
