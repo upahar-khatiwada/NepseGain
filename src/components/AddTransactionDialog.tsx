@@ -115,8 +115,8 @@ export function AddTransactionDialog({ portfolioId }: { portfolioId: string }) {
       setOpen(false)
       form.reset()
       router.refresh()
-    } catch {
-      toast.error("Failed to add transaction")
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to add transaction")
     } finally {
       setPending(false)
     }

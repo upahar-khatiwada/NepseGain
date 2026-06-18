@@ -143,8 +143,8 @@ export function EditTransactionDialog({
       toast.success("Transaction updated")
       onClose()
       router.refresh()
-    } catch {
-      toast.error("Failed to update transaction")
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update transaction")
     } finally {
       setPending(false)
     }

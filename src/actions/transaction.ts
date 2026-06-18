@@ -36,6 +36,24 @@ async function getCurrentUser() {
   return session.user
 }
 
+async function getRemainingQuantity(
+  portfolioId: string,
+  shareCode: string,
+  excludeId?: string
+): Promise<number> {
+  const txs = await prisma.transaction.findMany({
+    where: {
+      portfolioId,
+      shareCode,
+      ...(excludeId ? { id: { not: excludeId } } : {}),
+    },
+    select: { type: true, quantity: true },
+  })
+  const bought = txs.filter((t) => t.type === "BUY").reduce((s, t) => s + t.quantity, 0)
+  const sold = txs.filter((t) => t.type === "SELL").reduce((s, t) => s + t.quantity, 0)
+  return bought - sold
+}
+
 async function computeAvgBuyCost(
   portfolioId: string,
   shareCode: string,
@@ -77,6 +95,20 @@ export async function addTransaction(portfolioId: string, data: TransactionInput
 
   const isSell = parsed.type === "SELL"
   const shareCode = parsed.shareCode.toUpperCase()
+
+  if (isSell) {
+    const remaining = await getRemainingQuantity(portfolioId, shareCode)
+    if (remaining <= 0) {
+      throw new Error(
+        `No buy record found for ${shareCode} in this portfolio — add the BUY transaction first.`
+      )
+    }
+    if (parsed.quantity > remaining) {
+      throw new Error(
+        `Cannot sell ${parsed.quantity} units of ${shareCode} — only ${remaining} remaining from recorded buys.`
+      )
+    }
+  }
 
   const avgBuyCostPerUnit = isSell
     ? await computeAvgBuyCost(portfolioId, shareCode)
@@ -130,6 +162,20 @@ export async function updateTransaction(id: string, data: TransactionInput) {
 
   const isSell = parsed.type === "SELL"
   const shareCode = parsed.shareCode.toUpperCase()
+
+  if (isSell) {
+    const remaining = await getRemainingQuantity(tx.portfolio.id, shareCode, tx.id)
+    if (remaining <= 0) {
+      throw new Error(
+        `No buy record found for ${shareCode} in this portfolio — add the BUY transaction first.`
+      )
+    }
+    if (parsed.quantity > remaining) {
+      throw new Error(
+        `Cannot sell ${parsed.quantity} units of ${shareCode} — only ${remaining} remaining from recorded buys.`
+      )
+    }
+  }
 
   const avgBuyCostPerUnit = isSell
     ? await computeAvgBuyCost(tx.portfolio.id, shareCode)

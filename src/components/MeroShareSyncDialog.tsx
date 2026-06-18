@@ -1,8 +1,8 @@
-"use client"
+"use client";
 
-import { useState, useMemo, useEffect, useRef } from "react"
-import { useRouter } from "next/navigation"
-import { toast } from "sonner"
+import { useState, useMemo, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import {
   AlertTriangleIcon,
   CheckCircle2Icon,
@@ -12,12 +12,19 @@ import {
   LoaderIcon,
   RefreshCwIcon,
   SearchIcon,
-} from "lucide-react"
-import { importMeroShareLots } from "@/src/actions/transaction"
-import type { EnrichedLot, MeroShareCapital, MeroShareUser } from "@/src/lib/meroshare-api"
-import { mapTransactionType, fetchAllHoldingsFromBrowser } from "@/src/lib/meroshare-api"
-import { formatNPR } from "@/src/lib/nepse-calc"
-import { Button } from "@/components/ui/button"
+} from "lucide-react";
+import { importMeroShareLots } from "@/src/actions/transaction";
+import type {
+  EnrichedLot,
+  MeroShareCapital,
+  MeroShareUser,
+} from "@/src/lib/meroshare-api";
+import {
+  mapTransactionType,
+  fetchAllHoldingsFromBrowser,
+} from "@/src/lib/meroshare-api";
+import { formatNPR } from "@/src/lib/nepse-calc";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -25,52 +32,76 @@ import {
   DialogTitle,
   DialogFooter,
   DialogClose,
-} from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Badge } from "@/components/ui/badge"
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface PreviewLot extends EnrichedLot {
-  key: string
-  editedRate: number | null
-  selected: boolean
+  key: string;
+  editedRate: number | null;
+  selected: boolean;
 }
 
-type Step = "credentials" | "preview" | "done"
+type Step = "credentials" | "preview" | "done";
 
 interface DoneResult {
-  imported: number
-  skipped: number
-  failed: string[]
-  totalStocks: number
+  imported: number;
+  skipped: number;
+  failed: string[];
+  totalStocks: number;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const SOURCE_BADGE: Record<string, { label: string; className: string }> = {
-  IPO:     { label: "IPO",       className: "bg-purple-500/10 text-purple-700 border-transparent" },
-  FPO:     { label: "FPO",       className: "bg-purple-500/10 text-purple-700 border-transparent" },
-  RIGHT:   { label: "Rights",    className: "bg-indigo-500/10 text-indigo-700 border-transparent" },
-  BONUS:   { label: "Bonus",     className: "bg-emerald-500/10 text-emerald-700 border-transparent" },
-  MERGER:  { label: "Merger",    className: "bg-orange-500/10 text-orange-700 border-transparent" },
-  DEMAT:   { label: "Demat",     className: "bg-slate-500/10 text-slate-600 border-transparent" },
-  AUCTION: { label: "Auction",   className: "bg-blue-500/10 text-blue-700 border-transparent" },
-  MARKET:  { label: "Secondary", className: "bg-blue-500/10 text-blue-700 border-transparent" },
-}
+  IPO: {
+    label: "IPO",
+    className: "bg-purple-500/10 text-purple-700 border-transparent",
+  },
+  FPO: {
+    label: "FPO",
+    className: "bg-purple-500/10 text-purple-700 border-transparent",
+  },
+  RIGHT: {
+    label: "Rights",
+    className: "bg-indigo-500/10 text-indigo-700 border-transparent",
+  },
+  BONUS: {
+    label: "Bonus",
+    className: "bg-emerald-500/10 text-emerald-700 border-transparent",
+  },
+  MERGER: {
+    label: "Merger",
+    className: "bg-orange-500/10 text-orange-700 border-transparent",
+  },
+  DEMAT: {
+    label: "Demat",
+    className: "bg-slate-500/10 text-slate-600 border-transparent",
+  },
+  AUCTION: {
+    label: "Auction",
+    className: "bg-blue-500/10 text-blue-700 border-transparent",
+  },
+  MARKET: {
+    label: "Secondary",
+    className: "bg-blue-500/10 text-blue-700 border-transparent",
+  },
+};
 
 function lotKey(lot: EnrichedLot): string {
-  return `${lot.scrip}|${lot.transactionDate}|${lot.quantity}|${lot.transactionType}`
+  return `${lot.scrip}|${lot.transactionDate}|${lot.quantity}|${lot.transactionType}`;
 }
 
 function groupByScrip(lots: PreviewLot[]): Map<string, PreviewLot[]> {
-  const map = new Map<string, PreviewLot[]>()
+  const map = new Map<string, PreviewLot[]>();
   for (const lot of lots) {
-    if (!map.has(lot.scrip)) map.set(lot.scrip, [])
-    map.get(lot.scrip)!.push(lot)
+    if (!map.has(lot.scrip)) map.set(lot.scrip, []);
+    map.get(lot.scrip)!.push(lot);
   }
-  return map
+  return map;
 }
 
 // ─── DP Picker (searchable dropdown) ─────────────────────────────────────────
@@ -81,32 +112,35 @@ function DPPicker({
   selected,
   onSelect,
 }: {
-  capitals: MeroShareCapital[]
-  loading: boolean
-  selected: MeroShareCapital | null
-  onSelect: (c: MeroShareCapital) => void
+  capitals: MeroShareCapital[];
+  loading: boolean;
+  selected: MeroShareCapital | null;
+  onSelect: (c: MeroShareCapital) => void;
 }) {
-  const [search, setSearch] = useState("")
-  const [open, setOpen] = useState(false)
-  const containerRef = useRef<HTMLDivElement>(null)
+  const [search, setSearch] = useState("");
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const filtered = useMemo(() => {
-    const q = search.toLowerCase()
-    return capitals.filter(
-      (c) => c.name.toLowerCase().includes(q) || c.code.includes(q)
-    ).slice(0, 50)
-  }, [capitals, search])
+    const q = search.toLowerCase();
+    return capitals
+      .filter((c) => c.name.toLowerCase().includes(q) || c.code.includes(q))
+      .slice(0, 50);
+  }, [capitals, search]);
 
   // Close on outside click
   useEffect(() => {
     function handler(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false)
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false);
       }
     }
-    document.addEventListener("mousedown", handler)
-    return () => document.removeEventListener("mousedown", handler)
-  }, [])
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
   return (
     <div className="space-y-1.5" ref={containerRef}>
@@ -114,22 +148,32 @@ function DPPicker({
       <button
         type="button"
         disabled={loading}
-        onClick={() => { setOpen((v) => !v); setSearch("") }}
+        onClick={() => {
+          setOpen((v) => !v);
+          setSearch("");
+        }}
         className="w-full flex items-center justify-between rounded-lg border border-input bg-background px-3 py-2 text-sm cursor-pointer hover:bg-muted/30 transition-colors disabled:opacity-50"
       >
         {loading ? (
           <span className="flex items-center gap-2 text-muted-foreground">
-            <LoaderIcon className="size-3.5 animate-spin" /> Loading broker list…
+            <LoaderIcon className="size-3.5 animate-spin" /> Loading broker
+            list…
           </span>
         ) : selected ? (
           <span className="truncate text-left">
             <span className="font-medium">{selected.name}</span>
-            <span className="ml-2 text-muted-foreground text-xs">({selected.code})</span>
+            <span className="ml-2 text-muted-foreground text-xs">
+              ({selected.code})
+            </span>
           </span>
         ) : (
-          <span className="text-muted-foreground">Select your broker / DP…</span>
+          <span className="text-muted-foreground">
+            Select your broker / DP…
+          </span>
         )}
-        <ChevronDownIcon className={`size-4 text-muted-foreground shrink-0 ml-2 transition-transform ${open ? "rotate-180" : ""}`} />
+        <ChevronDownIcon
+          className={`size-4 text-muted-foreground shrink-0 ml-2 transition-transform ${open ? "rotate-180" : ""}`}
+        />
       </button>
 
       {open && !loading && (
@@ -146,17 +190,25 @@ function DPPicker({
           </div>
           <div className="max-h-52 overflow-y-auto">
             {filtered.length === 0 ? (
-              <p className="px-3 py-4 text-center text-xs text-muted-foreground">No brokers found.</p>
+              <p className="px-3 py-4 text-center text-xs text-muted-foreground">
+                No brokers found.
+              </p>
             ) : (
               filtered.map((c) => (
                 <button
                   key={c.id}
                   type="button"
-                  onClick={() => { onSelect(c); setOpen(false); setSearch("") }}
+                  onClick={() => {
+                    onSelect(c);
+                    setOpen(false);
+                    setSearch("");
+                  }}
                   className="w-full text-left px-3 py-2 text-sm hover:bg-muted cursor-pointer flex items-center justify-between gap-2"
                 >
                   <span className="truncate">{c.name}</span>
-                  <span className="text-xs text-muted-foreground shrink-0">{c.code}</span>
+                  <span className="text-xs text-muted-foreground shrink-0">
+                    {c.code}
+                  </span>
                 </button>
               ))
             )}
@@ -164,7 +216,7 @@ function DPPicker({
         </div>
       )}
     </div>
-  )
+  );
 }
 
 // ─── Stock section (accordion row in Step 2) ─────────────────────────────────
@@ -177,17 +229,17 @@ function StockSection({
   onSelectAll,
   onDeselectAll,
 }: {
-  scrip: string
-  lots: PreviewLot[]
-  onToggleLot: (key: string) => void
-  onEditRate: (key: string, rate: number | null) => void
-  onSelectAll: (scrip: string) => void
-  onDeselectAll: (scrip: string) => void
+  scrip: string;
+  lots: PreviewLot[];
+  onToggleLot: (key: string) => void;
+  onEditRate: (key: string, rate: number | null) => void;
+  onSelectAll: (scrip: string) => void;
+  onDeselectAll: (scrip: string) => void;
 }) {
-  const [open, setOpen] = useState(true)
-  const selectedCount = lots.filter((l) => l.selected).length
-  const companyName = lots[0]?.companyName ?? ""
-  const currentBalance = lots[0]?.currentBalance ?? 0
+  const [open, setOpen] = useState(true);
+  const selectedCount = lots.filter((l) => l.selected).length;
+  const companyName = lots[0]?.companyName ?? "";
+  const currentBalance = lots[0]?.currentBalance ?? 0;
 
   return (
     <div className="rounded-lg border">
@@ -219,11 +271,19 @@ function StockSection({
       {open && (
         <div className="border-t">
           <div className="flex gap-3 px-4 py-2 border-b bg-muted/20">
-            <button type="button" className="text-xs text-blue-600 hover:underline cursor-pointer" onClick={() => onSelectAll(scrip)}>
+            <button
+              type="button"
+              className="text-xs text-blue-600 hover:underline cursor-pointer"
+              onClick={() => onSelectAll(scrip)}
+            >
               Select all
             </button>
             <span className="text-muted-foreground">·</span>
-            <button type="button" className="text-xs text-muted-foreground hover:underline cursor-pointer" onClick={() => onDeselectAll(scrip)}>
+            <button
+              type="button"
+              className="text-xs text-muted-foreground hover:underline cursor-pointer"
+              onClick={() => onDeselectAll(scrip)}
+            >
               Deselect all
             </button>
           </div>
@@ -240,20 +300,37 @@ function StockSection({
             </thead>
             <tbody>
               {lots.map((lot) => {
-                const src = mapTransactionType(lot.transactionType)
-                const badgeCfg = SOURCE_BADGE[src] ?? { label: src, className: "bg-slate-100 text-slate-600 border-transparent" }
-                const rate = lot.editedRate ?? lot.rate
-                const needsRate = lot.rate === 0
+                const src = mapTransactionType(lot.transactionType);
+                const badgeCfg = SOURCE_BADGE[src] ?? {
+                  label: src,
+                  className: "bg-slate-100 text-slate-600 border-transparent",
+                };
+                const rate = lot.editedRate ?? lot.rate;
+                const needsRate = lot.rate === 0;
                 return (
-                  <tr key={lot.key} className={`border-b last:border-0 ${!lot.selected ? "opacity-50" : ""}`}>
+                  <tr
+                    key={lot.key}
+                    className={`border-b last:border-0 ${!lot.selected ? "opacity-50" : ""}`}
+                  >
                     <td className="px-4 py-2">
-                      <input type="checkbox" checked={lot.selected} onChange={() => onToggleLot(lot.key)} className="cursor-pointer" />
+                      <input
+                        type="checkbox"
+                        checked={lot.selected}
+                        onChange={() => onToggleLot(lot.key)}
+                        className="cursor-pointer"
+                      />
                     </td>
-                    <td className="px-2 py-2 tabular-nums text-muted-foreground">{lot.transactionDate}</td>
+                    <td className="px-2 py-2 tabular-nums text-muted-foreground">
+                      {lot.transactionDate}
+                    </td>
                     <td className="px-2 py-2">
-                      <Badge className={badgeCfg.className}>{badgeCfg.label}</Badge>
+                      <Badge className={badgeCfg.className}>
+                        {badgeCfg.label}
+                      </Badge>
                     </td>
-                    <td className="px-2 py-2 text-right tabular-nums">{lot.quantity.toLocaleString("en-IN")}</td>
+                    <td className="px-2 py-2 text-right tabular-nums">
+                      {lot.quantity.toLocaleString("en-IN")}
+                    </td>
                     <td className="px-2 py-2 text-right">
                       {needsRate ? (
                         <Input
@@ -264,7 +341,14 @@ function StockSection({
                           className="h-7 w-28 text-xs text-right"
                           style={{ borderColor: "#f59e0b" }}
                           value={lot.editedRate ?? ""}
-                          onChange={(e) => onEditRate(lot.key, e.target.value === "" ? null : parseFloat(e.target.value))}
+                          onChange={(e) =>
+                            onEditRate(
+                              lot.key,
+                              e.target.value === ""
+                                ? null
+                                : parseFloat(e.target.value),
+                            )
+                          }
                         />
                       ) : (
                         <span className="tabular-nums">{formatNPR(rate)}</span>
@@ -274,14 +358,14 @@ function StockSection({
                       {rate > 0 ? formatNPR(rate * lot.quantity) : "—"}
                     </td>
                   </tr>
-                )
+                );
               })}
             </tbody>
           </table>
         </div>
       )}
     </div>
-  )
+  );
 }
 
 // ─── Main dialog ─────────────────────────────────────────────────────────────
@@ -290,148 +374,174 @@ export function MeroShareSyncDialog({
   portfolioId,
   onDone,
 }: {
-  portfolioId: string
-  onDone?: () => void
+  portfolioId: string;
+  onDone?: () => void;
 }) {
-  const router = useRouter()
-  const [open, setOpen] = useState(false)
-  const [step, setStep] = useState<Step>("credentials")
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [step, setStep] = useState<Step>("credentials");
 
   // DP picker
-  const [capitals, setCapitals] = useState<MeroShareCapital[]>([])
-  const [capitalsLoading, setCapitalsLoading] = useState(false)
-  const [selectedCapital, setSelectedCapital] = useState<MeroShareCapital | null>(null)
+  const [capitals, setCapitals] = useState<MeroShareCapital[]>([]);
+  const [capitalsLoading, setCapitalsLoading] = useState(false);
+  const [selectedCapital, setSelectedCapital] =
+    useState<MeroShareCapital | null>(null);
 
   // Credentials
-  const [username, setUsername] = useState("")
-  const [password, setPassword] = useState("")
-  const [showPassword, setShowPassword] = useState(false)
-  const [fetching, setFetching] = useState(false)
-  const [fetchError, setFetchError] = useState<string | null>(null)
-  const [fetchStatus, setFetchStatus] = useState<string>("")
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [fetching, setFetching] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [fetchStatus, setFetchStatus] = useState<string>("");
 
   // Step 2
-  const [lots, setLots] = useState<PreviewLot[]>([])
-  const [failedScrips, setFailedScrips] = useState<string[]>([])
-  const [importing, setImporting] = useState(false)
+  const [lots, setLots] = useState<PreviewLot[]>([]);
+  const [failedScrips, setFailedScrips] = useState<string[]>([]);
+  const [importing, setImporting] = useState(false);
 
   // Step 3
-  const [result, setResult] = useState<DoneResult | null>(null)
+  const [result, setResult] = useState<DoneResult | null>(null);
 
-  const grouped = useMemo(() => groupByScrip(lots), [lots])
-  const selectedCount = lots.filter((l) => l.selected).length
+  const grouped = useMemo(() => groupByScrip(lots), [lots]);
+  const selectedCount = lots.filter((l) => l.selected).length;
 
   // Fetch DP list via our server (avoids CORS/proxy issues hitting MeroShare from the browser)
   useEffect(() => {
-    if (!open || capitals.length > 0) return
-    setCapitalsLoading(true)
-    fetch("/api/meroshare/capital")
+    if (!open || capitals.length > 0) return;
+    Promise.resolve()
+      .then(() => setCapitalsLoading(true))
+      .then(() => fetch("/api/meroshare/capital"))
       .then((r) => r.json())
-      .then((data) => { if (Array.isArray(data.capitals)) setCapitals(data.capitals) })
+      .then((data) => {
+        if (Array.isArray(data.capitals)) setCapitals(data.capitals);
+      })
       .catch(() => {})
-      .finally(() => setCapitalsLoading(false))
-  }, [open, capitals.length])
+      .finally(() => setCapitalsLoading(false));
+  }, [open, capitals.length]);
 
   function resetAll() {
-    setStep("credentials")
-    setSelectedCapital(null)
-    setUsername("")
-    setPassword("")
-    setShowPassword(false)
-    setFetching(false)
-    setFetchError(null)
-    setFetchStatus("")
-    setLots([])
-    setFailedScrips([])
-    setImporting(false)
-    setResult(null)
+    setStep("credentials");
+    setSelectedCapital(null);
+    setUsername("");
+    setPassword("");
+    setShowPassword(false);
+    setFetching(false);
+    setFetchError(null);
+    setFetchStatus("");
+    setLots([]);
+    setFailedScrips([]);
+    setImporting(false);
+    setResult(null);
   }
 
   function handleClose() {
-    setOpen(false)
-    resetAll()
+    setOpen(false);
+    resetAll();
   }
 
   async function handleFetch() {
     if (!selectedCapital || !username || !password) {
-      setFetchError("All fields are required.")
-      return
+      setFetchError("All fields are required.");
+      return;
     }
-    setFetching(true)
-    setFetchError(null)
-    setFetchStatus("Connecting to MeroShare…")
+    setFetching(true);
+    setFetchError(null);
+    setFetchStatus("Connecting to MeroShare…");
 
     try {
       const res = await fetch("/api/meroshare/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientId: selectedCapital.id, username, password }),
-      })
+        body: JSON.stringify({
+          clientId: selectedCapital.id,
+          username,
+          password,
+        }),
+      });
 
-      const data = await res.json()
+      const data = await res.json();
 
       if (!res.ok) {
-        setFetchError(data.error ?? "Failed to fetch from MeroShare.")
-        return
+        setFetchError(data.error ?? "Failed to fetch from MeroShare.");
+        return;
       }
 
-      setFetchStatus("Fetching your holdings and purchase history…")
+      setFetchStatus("Fetching your holdings and purchase history…");
 
       // These two calls run directly in the browser (not via our server) —
       // MeroShare's WAF blocks server-originated requests to these specific
       // endpoints regardless of headers, but allows real browser requests.
       const { lots: rawLots, failedScrips: stockFailures } =
-        await fetchAllHoldingsFromBrowser(data.token as string, data.user as MeroShareUser)
+        await fetchAllHoldingsFromBrowser(
+          data.token as string,
+          data.user as MeroShareUser,
+        );
 
       const previewLots: PreviewLot[] = rawLots.map((lot) => ({
         ...lot,
         key: lotKey(lot),
         editedRate: null,
         selected: true,
-      }))
+      }));
 
-      setLots(previewLots)
-      setFailedScrips(stockFailures)
-      setStep("preview")
+      setLots(previewLots);
+      setFailedScrips(stockFailures);
+      setStep("preview");
     } catch {
-      setFetchError("Could not reach MeroShare. Check your internet connection and try again.")
+      setFetchError(
+        "Could not reach MeroShare. Check your internet connection and try again.",
+      );
     } finally {
-      setFetching(false)
-      setFetchStatus("")
+      setFetching(false);
+      setFetchStatus("");
     }
   }
 
   function toggleLot(key: string) {
-    setLots((prev) => prev.map((l) => l.key === key ? { ...l, selected: !l.selected } : l))
+    setLots((prev) =>
+      prev.map((l) => (l.key === key ? { ...l, selected: !l.selected } : l)),
+    );
   }
 
   function editRate(key: string, rate: number | null) {
-    setLots((prev) => prev.map((l) => l.key === key ? { ...l, editedRate: rate } : l))
+    setLots((prev) =>
+      prev.map((l) => (l.key === key ? { ...l, editedRate: rate } : l)),
+    );
   }
 
   function selectAll(scrip: string) {
-    setLots((prev) => prev.map((l) => l.scrip === scrip ? { ...l, selected: true } : l))
+    setLots((prev) =>
+      prev.map((l) => (l.scrip === scrip ? { ...l, selected: true } : l)),
+    );
   }
 
   function deselectAll(scrip: string) {
-    setLots((prev) => prev.map((l) => l.scrip === scrip ? { ...l, selected: false } : l))
+    setLots((prev) =>
+      prev.map((l) => (l.scrip === scrip ? { ...l, selected: false } : l)),
+    );
   }
 
   async function handleImport() {
     if (selectedCount === 0) {
-      toast.error("Select at least one lot to import.")
-      return
+      toast.error("Select at least one lot to import.");
+      return;
     }
-    setImporting(true)
+    setImporting(true);
     try {
-      const res = await importMeroShareLots(portfolioId, lots)
-      setResult({ imported: res.imported, skipped: res.skipped, failed: res.failed, totalStocks: grouped.size })
-      setStep("done")
-      router.refresh()
+      const res = await importMeroShareLots(portfolioId, lots);
+      setResult({
+        imported: res.imported,
+        skipped: res.skipped,
+        failed: res.failed,
+        totalStocks: grouped.size,
+      });
+      setStep("done");
+      router.refresh();
     } catch {
-      toast.error("Import failed. Try again.")
+      toast.error("Import failed. Try again.");
     } finally {
-      setImporting(false)
+      setImporting(false);
     }
   }
 
@@ -448,9 +558,15 @@ export function MeroShareSyncDialog({
         Sync from MeroShare
       </Button>
 
-      <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose() }}>
-        <DialogContent className={`max-h-[90vh] overflow-y-auto ${step === "preview" ? "sm:max-w-5xl" : "sm:max-w-2xl"}`}>
-
+      <Dialog
+        open={open}
+        onOpenChange={(v) => {
+          if (!v) handleClose();
+        }}
+      >
+        <DialogContent
+          className={`max-h-[90vh] overflow-y-auto ${step === "preview" ? "sm:max-w-5xl" : "sm:max-w-2xl"}`}
+        >
           {/* ── Step 1: Credentials ── */}
           {step === "credentials" && (
             <>
@@ -462,8 +578,9 @@ export function MeroShareSyncDialog({
                 <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50/60 p-3 text-xs text-amber-800">
                   <AlertTriangleIcon className="size-4 shrink-0 mt-0.5" />
                   <span>
-                    Your credentials are used only to fetch your portfolio data and are{" "}
-                    <strong>never stored</strong>. Only the transaction data is saved.
+                    Your credentials are used only to fetch your portfolio data
+                    and are <strong>never stored</strong>. Only the transaction
+                    data is saved.
                   </span>
                 </div>
 
@@ -495,7 +612,9 @@ export function MeroShareSyncDialog({
                       placeholder="Your MeroShare password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") handleFetch() }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleFetch();
+                      }}
                       autoComplete="current-password"
                       className="pr-10"
                     />
@@ -504,7 +623,11 @@ export function MeroShareSyncDialog({
                       className="absolute inset-y-0 right-3 flex items-center text-muted-foreground hover:text-foreground cursor-pointer"
                       onClick={() => setShowPassword((v) => !v)}
                     >
-                      {showPassword ? <EyeOffIcon className="size-4" /> : <EyeIcon className="size-4" />}
+                      {showPassword ? (
+                        <EyeOffIcon className="size-4" />
+                      ) : (
+                        <EyeIcon className="size-4" />
+                      )}
                     </button>
                   </div>
                 </div>
@@ -525,7 +648,15 @@ export function MeroShareSyncDialog({
               </div>
 
               <DialogFooter>
-                <DialogClose render={<Button variant="outline" type="button" className="cursor-pointer" />}>
+                <DialogClose
+                  render={
+                    <Button
+                      variant="outline"
+                      type="button"
+                      className="cursor-pointer"
+                    />
+                  }
+                >
                   Cancel
                 </DialogClose>
                 <Button
@@ -553,8 +684,9 @@ export function MeroShareSyncDialog({
             <>
               <DialogHeader>
                 <DialogTitle>
-                  Review Your Portfolio ({lots.length} lot{lots.length !== 1 ? "s" : ""} across{" "}
-                  {grouped.size} stock{grouped.size !== 1 ? "s" : ""})
+                  Review Your Portfolio ({lots.length} lot
+                  {lots.length !== 1 ? "s" : ""} across {grouped.size} stock
+                  {grouped.size !== 1 ? "s" : ""})
                 </DialogTitle>
               </DialogHeader>
 
@@ -562,7 +694,8 @@ export function MeroShareSyncDialog({
                 {failedScrips.length > 0 && (
                   <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50/60 p-3 text-xs text-amber-800">
                     <AlertTriangleIcon className="size-4 shrink-0 mt-0.5" />
-                    Could not fetch history for: {failedScrips.join(", ")}. These are skipped.
+                    Could not fetch history for: {failedScrips.join(", ")}.
+                    These are skipped.
                   </div>
                 )}
 
@@ -584,7 +717,12 @@ export function MeroShareSyncDialog({
                   {selectedCount} lot{selectedCount !== 1 ? "s" : ""} selected
                 </div>
                 <div className="flex gap-2">
-                  <Button type="button" variant="outline" className="cursor-pointer" onClick={() => setStep("credentials")}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="cursor-pointer"
+                    onClick={() => setStep("credentials")}
+                  >
                     Back
                   </Button>
                   <Button
@@ -617,16 +755,23 @@ export function MeroShareSyncDialog({
 
               <div className="space-y-4 py-4">
                 <div className="flex flex-col items-center gap-3 py-4">
-                  <CheckCircle2Icon className="size-12" style={{ color: "#16a34a" }} />
+                  <CheckCircle2Icon
+                    className="size-12"
+                    style={{ color: "#16a34a" }}
+                  />
                   <p className="text-lg font-semibold text-center">
-                    Imported {result.imported} lot{result.imported !== 1 ? "s" : ""} across{" "}
-                    {result.totalStocks} stock{result.totalStocks !== 1 ? "s" : ""}
+                    Imported {result.imported} lot
+                    {result.imported !== 1 ? "s" : ""} across{" "}
+                    {result.totalStocks} stock
+                    {result.totalStocks !== 1 ? "s" : ""}
                   </p>
                 </div>
 
                 {result.skipped > 0 && (
                   <div className="rounded-lg bg-muted/40 border px-3 py-2.5 text-sm text-muted-foreground">
-                    {result.skipped} duplicate lot{result.skipped !== 1 ? "s" : ""} skipped (already in portfolio).
+                    {result.skipped} duplicate lot
+                    {result.skipped !== 1 ? "s" : ""} skipped (already in
+                    portfolio).
                   </div>
                 )}
 
@@ -644,8 +789,8 @@ export function MeroShareSyncDialog({
                   className="cursor-pointer"
                   style={{ backgroundColor: "#0d9488", color: "white" }}
                   onClick={() => {
-                    handleClose()
-                    onDone?.()
+                    handleClose();
+                    onDone?.();
                   }}
                 >
                   View Holdings
@@ -656,5 +801,5 @@ export function MeroShareSyncDialog({
         </DialogContent>
       </Dialog>
     </>
-  )
+  );
 }

@@ -135,7 +135,14 @@ export default async function PortfolioPage({
       {/* Tabs */}
       <Tabs defaultValue="holdings">
         <TabsList>
-          <TabsTrigger value="holdings">Holdings</TabsTrigger>
+          <TabsTrigger value="holdings">
+            Holdings
+            {stockSummaries.length > 0 && (
+              <span className="ml-1 text-xs font-normal opacity-70">
+                ({stockSummaries.length})
+              </span>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="transactions">
             Transactions
             {filteredTransactions.length > 0 && (

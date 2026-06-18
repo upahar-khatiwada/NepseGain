@@ -507,6 +507,7 @@ bunx shadcn@latest add <name>    # Add a new shadcn component
 - **Migrations applied** — schema is in sync with the DB. Run `bun run prisma migrate dev` after any schema change.
 - **Fonts**: Geist Sans and Geist Mono via `next/font/google` in `src/app/layout.tsx`.
 - **P/L coloring**: use inline `style` with exact hex colors (`#16a34a` green, `#dc2626` red) rather than Tailwind color classes — this avoids Tailwind v4 purge issues with dynamic color values.
+- **ESLint rule `react-hooks/set-state-in-effect`** (from `eslint-config-next`) errors on any `setState` called synchronously as the first statement in a `useEffect` body (e.g. `setLoading(true)` before a `fetch(...)`), since it can trigger cascading renders. Fix by moving that call inside a `.then()`/async callback instead of the synchronous effect body — e.g. `Promise.resolve().then(() => setLoading(true)).then(() => fetch(...))...` — see the fix in `MeroShareSyncDialog.tsx`'s DP-list-loading effect. Run `bun run eslint <file>` to check before assuming a red squiggly in the editor is a stale/false warning.
 - **What's built so far**: auth wiring (sign-in page, route handler, proxy guard) + portfolio management (dashboard layout with sidebar, portfolio CRUD via server actions) + transaction entry and list (AddTransactionDialog, TransactionTable, transaction server actions, nepse-calc) + P/L summary and date range filter (PLSummaryCard, DateRangeFilter, pl-summary.ts, dashboard and portfolio pages updated).
 
 ---
@@ -1148,3 +1149,34 @@ Bonus shares (free shares issued as a stock dividend) are now a third option in 
 This keeps strict positive-price validation for every other case while permitting `0` specifically for bonus allotments — and the server-side copy is the actual source of truth (defense in depth) regardless of what the client sends. The live charge-preview guard in both dialogs was also loosened from `price <= 0 → no preview` to `price < 0 → no preview`, so a `0`-price Bonus entry still shows a (all-zero) charge preview instead of the preview panel disappearing.
 
 `getWeightedAverageCost` (`src/lib/cost-basis.ts`) needed no change — a bonus lot naturally contributes `quantity × 0 + 0 + 0 + 0 = 0` to the cost pool, correctly diluting the average cost basis downward when bonus shares are added to a holding, which matches real tax treatment (bonus shares have zero cost basis).
+
+---
+
+## SELL Guard & Holdings Tab Counts (added in Prompt 13)
+
+### Can no longer SELL a share with no recorded BUY (or oversell it)
+
+Previously a SELL could be added/edited for any `shareCode` at all, even one with zero BUY rows in the portfolio — `avgBuyCostPerUnit` would just come back `null` and the charge calc would silently fall back to the user-typed `buyPricePerUnit`, with no real cost basis backing it. `src/actions/transaction.ts` now exports a private helper, `getRemainingQuantity(portfolioId, shareCode, excludeId?)`, which sums `BUY` quantity minus `SELL` quantity already recorded for that exact `shareCode` in that portfolio. Both `addTransaction` and `updateTransaction` call it before doing anything else when `parsed.type === "SELL"`:
+
+```ts
+const remaining = await getRemainingQuantity(portfolioId, shareCode /* , tx.id when updating */)
+if (remaining <= 0) {
+  throw new Error(`No buy record found for ${shareCode} in this portfolio — add the BUY transaction first.`)
+}
+if (parsed.quantity > remaining) {
+  throw new Error(`Cannot sell ${parsed.quantity} units of ${shareCode} — only ${remaining} remaining from recorded buys.`)
+}
+```
+
+- `remaining <= 0` covers both "this share has never been bought here" (bought = 0) and "you've already sold everything you bought."
+- In `updateTransaction`, the row being edited is passed as `excludeId` so editing an existing SELL doesn't count its own old quantity against itself.
+- This is throw-based, matching the rest of the file's existing error convention (`Unauthorized`, `Portfolio not found`, etc.) rather than a return-value result type. **Caveat:** Next.js can redact custom thrown `Error` messages from Server Actions in production builds, showing a generic message instead — the real message reliably reaches the client in dev. If this ever needs to be production-safe, the fix is to switch this one path to a serializable `{ success, error }` return value instead of throwing, not a header/proxy issue.
+- `AddTransactionDialog.tsx` and `TransactionEditDialogs.tsx` (`EditTransactionDialog`) catch blocks were changed from a generic `toast.error("Failed to add/update transaction")` to `toast.error(error instanceof Error ? error.message : "Failed to add transaction")` specifically so this rejection reason is visible to the user instead of being swallowed.
+
+### Holdings tab now shows a count, like Transactions does
+
+`src/app/dashboard/portfolio/[id]/page.tsx` — the `TabsTrigger value="holdings"` now shows `Holdings (N)` (count of `stockSummaries`, i.e. distinct stocks with any history in this portfolio) using the same `<span className="ml-1 text-xs font-normal opacity-70">` pattern already used by the `Transactions (N)` trigger. An earlier attempt added a `"X shares held across Y stocks"` summary line inside the Holdings tab content instead — that was explicitly rejected in favor of the tab-count-badge style, so don't reintroduce that summary line there.
+
+### Dashboard-level holdings summary line
+
+`src/app/dashboard/page.tsx` — the `"Holdings (All Portfolios)"` heading row (shown above the cross-portfolio `StockBreakdownTable`, only when `allStockSummaries.length > 0`) now has a `flex items-center justify-between` header with a right-aligned line: `"{holdings.totalUnits} shares held across {portfolios.length} portfolios"`, using the existing `holdings = calcHoldingsSummary(allStockSummaries)` value and the already-fetched `portfolios` array — no new queries needed. Unlike the per-portfolio page, this summary line **was** kept here, since "total portfolios" is actually meaningful at this cross-portfolio scope (on the single-portfolio page it would always read "1 portfolio", which is why that page got a count badge instead).

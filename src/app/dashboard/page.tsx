@@ -116,9 +116,16 @@ export default async function DashboardPage({
 
       {allStockSummaries.length > 0 && (
         <div>
-          <h2 className="font-semibold text-slate-700 mb-3">
-            Holdings (All Portfolios)
-          </h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-semibold text-slate-700">
+              Holdings (All Portfolios)
+            </h2>
+            <p className="text-sm text-slate-500">
+              {holdings.totalUnits.toLocaleString("en-IN")} share
+              {holdings.totalUnits !== 1 ? "s" : ""} held across {portfolios.length} portfolio
+              {portfolios.length !== 1 ? "s" : ""}
+            </p>
+          </div>
           <StockBreakdownTable summaries={allStockSummaries} />
         </div>
       )}
