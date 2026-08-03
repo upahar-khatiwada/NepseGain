@@ -7,6 +7,7 @@ import { calcStockSummaries, calcHoldingsSummary } from "@/src/lib/stock-summary
 import { PLSummaryCard } from "@/src/components/PLSummaryCard"
 import { DateRangeFilter } from "@/src/components/DateRangeFilter"
 import { StockBreakdownTable } from "@/src/components/StockBreakdownTable"
+import { WaccTable } from "@/src/components/WaccTable"
 import { PLBarChart } from "@/src/components/charts/PLBarChart"
 import { PLTrendLine } from "@/src/components/charts/PLTrendLine"
 import { PortfolioPieChart } from "@/src/components/charts/PortfolioPieChart"
@@ -143,6 +144,14 @@ export default async function PortfolioPage({
               </span>
             )}
           </TabsTrigger>
+          <TabsTrigger value="wacc">
+            WACC
+            {holdings.stockCount > 0 && (
+              <span className="ml-1 text-xs font-normal opacity-70">
+                ({holdings.stockCount})
+              </span>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="transactions">
             Transactions
             {filteredTransactions.length > 0 && (
@@ -172,6 +181,13 @@ export default async function PortfolioPage({
           ) : (
             <StockBreakdownTable summaries={stockSummaries} portfolioId={id} transactions={transactions} />
           )}
+        </TabsContent>
+
+        <TabsContent value="wacc" className="mt-4">
+          <p className="text-sm text-slate-500 mb-3">
+            Weighted average cost (WACC) per unit for shares you currently hold — expand a row to estimate a sale before recording it.
+          </p>
+          <WaccTable summaries={stockSummaries} />
         </TabsContent>
 
         <TabsContent value="transactions" className="mt-4">

@@ -71,8 +71,8 @@ export function SellDialog({
   const cgtLabel =
     daysHeld != null
       ? daysHeld <= 365
-        ? "Short-term (≤365 days, 7.5%)"
-        : "Long-term (>365 days, 5.0%)"
+        ? `Short-term (≤365 days, ${(+process.env.NEXT_PUBLIC_CGT_SHORT_TERM! * 100).toFixed(1)}%)`
+        : `Long-term (>365 days, ${(+process.env.NEXT_PUBLIC_CGT_LONG_TERM! * 100).toFixed(1)}%)`
       : ""
 
   function reset() {

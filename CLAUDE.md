@@ -329,8 +329,8 @@ CGT is applied to the **profit only** (selling price − cost basis), not the fu
 ```ts
 const cgtRate =
   daysHeld <= 365
-    ? +process.env.NEXT_PUBLIC_CGT_SHORT_TERM!   // 7.5%
-    : +process.env.NEXT_PUBLIC_CGT_LONG_TERM!    // 5.0%
+    ? +process.env.NEXT_PUBLIC_CGT_SHORT_TERM!   // 10%
+    : +process.env.NEXT_PUBLIC_CGT_LONG_TERM!    // 7.5%
 
 // avgBuyCostPerUnit takes priority; fall back to user-entered buyPricePerUnit
 const costBasis = avgBuyCostPerUnit ?? buyPricePerUnit ?? null
@@ -437,8 +437,8 @@ Prisma client output goes to `generated/prisma/` — import from `@/generated/pr
 | `GOOGLE_CLIENT_ID` | _(real value)_ | Google OAuth client ID |
 | `GOOGLE_CLIENT_SECRET` | _(real value)_ | Google OAuth client secret |
 | `NEXT_PUBLIC_APP_URL` | `http://localhost:3000` | Public base URL (used by auth-client) |
-| `NEXT_PUBLIC_CGT_SHORT_TERM` | `0.075` | 7.5% CGT for shares held ≤ 365 days |
-| `NEXT_PUBLIC_CGT_LONG_TERM` | `0.05` | 5% CGT for shares held > 365 days |
+| `NEXT_PUBLIC_CGT_SHORT_TERM` | `0.10` | 10% CGT for shares held ≤ 365 days (updated from 7.5% — see AGENTS.md warning about stale training data / always check `.env.local` for current rates, not this doc) |
+| `NEXT_PUBLIC_CGT_LONG_TERM` | `0.075` | 7.5% CGT for shares held > 365 days (updated from 5%) |
 | `NEXT_PUBLIC_DP_CHARGE` | `25` | NPR 25 flat DP charge per transaction |
 | `NEXT_PUBLIC_SEBON_RATE` | `0.00015` | 0.015% SEBON fee on transaction value |
 | `NEXT_PUBLIC_BROKER_RATE_UPTO_50K` | `0.004` | 0.40% broker commission up to NPR 50k |
@@ -1180,3 +1180,28 @@ if (parsed.quantity > remaining) {
 ### Dashboard-level holdings summary line
 
 `src/app/dashboard/page.tsx` — the `"Holdings (All Portfolios)"` heading row (shown above the cross-portfolio `StockBreakdownTable`, only when `allStockSummaries.length > 0`) now has a `flex items-center justify-between` header with a right-aligned line: `"{holdings.totalUnits} shares held across {portfolios.length} portfolios"`, using the existing `holdings = calcHoldingsSummary(allStockSummaries)` value and the already-fetched `portfolios` array — no new queries needed. Unlike the per-portfolio page, this summary line **was** kept here, since "total portfolios" is actually meaningful at this cross-portfolio scope (on the single-portfolio page it would always read "1 portfolio", which is why that page got a count badge instead).
+
+---
+
+## WACC Tab & Sale Calculator (added in Prompt 14)
+
+### `src/components/WaccTable.tsx` — new client component
+
+A third tab (`WACC`) on the portfolio detail page, sitting between Holdings and Transactions in `src/app/dashboard/portfolio/[id]/page.tsx`. Only rendered per-portfolio (not on the cross-portfolio `/dashboard` page) since, like the Sell button, it only makes sense against a single portfolio's open positions.
+
+- Takes `summaries: StockSummary[]` (same `stockSummaries` already computed on the page via `calcStockSummaries`) — no new query or server action.
+- Filters to `remainingUnits > 0` only — WACC and a sale estimate are meaningless for a fully-closed position.
+- Table columns: Code, Name, Remaining, **WACC** (`avgBuyCost` — fee-inclusive cost basis, same field `StockBreakdownTable` calls "Avg Cost"), **Cost Basis** (`remainingUnits × avgBuyCost` — total capital still tied up at cost, distinct from `remainingValue` in `stock-summary.ts` which uses `avgBuyPrice` instead), and a "Calculate Sale" action column. Sortable via the same `ArrowUpDownIcon` header-button pattern as `StockBreakdownTable`.
+- **`SortButton` is declared at module scope, not inside `WaccTable`** — an inline per-render `function SortButton(){...}` (the pattern `StockBreakdownTable.tsx` still uses) fails the `react-hooks/static-components` ESLint rule. Take `onSort` as a prop instead of closing over `handleSort`. If copying more of `StockBreakdownTable`'s patterns into new files, check this rule before nesting component-returning functions inside another component.
+
+### Inline expand-to-calculate row (not a dialog)
+
+Clicking "Calculate Sale" toggles an inline `<TableRow>` (via the same `Fragment` + conditional extra row pattern as `BuyBreakdownRow` in `StockBreakdownTable.tsx`) directly under that stock's row — no modal. It renders `SaleCalculator`, a **read-only estimator**: Quantity / Sale Price / Days Held inputs feed `calculateCharges({ type: "SELL", ... })` from `nepse-calc.ts` (client-side, live, no server round-trip — same as every other charge preview in this app) and show Gross Proceeds → Broker Commission → DP Charge → SEBON → Capital Gain Tax → **Net Receivable** → **Net Profit/Loss** (net receivable minus `avgBuyCost × qty`).
+
+- Quantity defaults to the full `remainingUnits`; Days Held defaults to `today − avgBuyDate` (the same quantity-weighted average buy date `stock-summary.ts` already computes) but is a plain editable number input, not a locked auto-value — matches how every other days-held field in this app works (see `SellDialog.tsx`'s override toggle), just without the toggle UI since this is a quick estimate, not a form being submitted.
+- **This calculator never calls `addTransaction` or any server action** — it's purely exploratory math, distinct from `SellDialog.tsx` (opened via the "Sell" button in the Holdings tab), which runs the identical `calculateCharges` preview but actually records a SELL transaction on submit. If a user reports the WACC tab's numbers "not saving", that's by design — point them at Sell on the Holdings tab instead.
+- Shows a warning line (not a hard block) if the entered quantity exceeds `remainingUnits` — this tab has no `portfolioId`/DB write to guard, so unlike `addTransaction`'s server-side oversell guard (see [SELL Guard](#sell-guard--holdings-tab-counts-added-in-prompt-13)), it can't and doesn't prevent the input, only flags it.
+
+### CGT rate labels must read from env, never be hardcoded
+
+While building this, found `SellDialog.tsx`'s `cgtLabel` had the short/long-term percentages hardcoded as literal text ("7.5%", "5.0%") — these had drifted from the actual `.env.local` values (now 10% / 7.5%, changed at some point without this label being updated) and were silently showing the wrong rate to the user. Fixed by computing the label from `process.env.NEXT_PUBLIC_CGT_SHORT_TERM`/`LONG_TERM` at render time instead of a literal string. `WaccTable.tsx`'s own `cgtLabel` was written from the start as `"short-term"`/`"long-term"` with no percentage in the text at all, specifically to avoid the same drift. **Do not hardcode a CGT/broker/SEBON percentage as display text anywhere** — always compute it from the `NEXT_PUBLIC_*` env var, or omit the number from the label entirely, since NEPSE changes these rates independently of any code change and nothing else re-validates that literal strings still match `.env.local`.
