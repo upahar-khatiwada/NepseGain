@@ -59,10 +59,12 @@ async function computeAvgBuyCost(
   shareCode: string,
   excludeId?: string
 ): Promise<number | null> {
-  const buys = await prisma.transaction.findMany({
+  // Both BUY and SELL rows are needed (not just BUYs) so a fully-closed-out position
+  // resets its cost basis instead of blending a prior, already-sold lot's price into
+  // the WACC of shares bought again later — see getWeightedAverageCost.
+  const history = await prisma.transaction.findMany({
     where: {
       portfolioId,
-      type: "BUY",
       shareCode,
       ...(excludeId ? { id: { not: excludeId } } : {}),
     },
@@ -74,11 +76,12 @@ async function computeAvgBuyCost(
       brokerCommission: true,
       dpCharge: true,
       sebon: true,
+      transactionDate: true,
     },
   })
-  if (buys.length === 0) return null
+  if (history.length === 0) return null
   const avg = getWeightedAverageCost(
-    buys.map((b) => ({ ...b, type: "BUY" as const })),
+    history.map((t) => ({ ...t, type: t.type as "BUY" | "SELL" })),
     shareCode
   )
   return avg === 0 ? null : avg

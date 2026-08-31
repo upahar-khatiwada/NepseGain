@@ -38,7 +38,9 @@ type TxForStockSummary = {
   netAmount: number
   capitalGainTax: number
   source: TransactionSource
-  transactionDate?: string  // ISO string; used to compute avgBuyDate
+  transactionDate?: string  // ISO string; used to compute avgBuyDate and the chronological WACC
+  avgBuyCostPerUnit?: number | null  // SELL rows only — cost basis locked in at the time of that sale
+  buyPricePerUnit?: number | null    // SELL rows only — fallback cost basis if avgBuyCostPerUnit is unset
 }
 
 export function calcStockSummaries(
@@ -82,9 +84,18 @@ export function calcStockSummaries(
     const totalProceeds = sells.reduce((sum, t) => sum + t.netAmount, 0)
     const totalTaxPaid = sells.reduce((sum, t) => sum + t.capitalGainTax, 0)
     const avgBuyPrice = totalBought > 0 ? totalInvested / totalBought : 0
-    const avgBuyCost = getWeightedAverageCost(buys, shareCode)
-    const realisedPL =
-      totalSold > 0 ? totalProceeds - totalSold * avgBuyCost : 0
+    // Sells must be replayed alongside buys so a fully-closed-out position resets
+    // its cost basis instead of blending in a lot that was already sold off — see
+    // getWeightedAverageCost. This is the current WACC of the remaining holding.
+    const avgBuyCost = getWeightedAverageCost([...buys, ...sells], shareCode)
+    // Realised P/L is summed per sale against the cost basis that was actually
+    // locked in at the time of that sale, not the current (possibly since-changed)
+    // avgBuyCost — otherwise a later re-buy at a different price would retroactively
+    // distort the P/L of sales that already happened.
+    const realisedPL = sells.reduce((sum, t) => {
+      const costBasis = t.avgBuyCostPerUnit ?? t.buyPricePerUnit ?? t.pricePerUnit
+      return sum + (t.netAmount - costBasis * t.quantity)
+    }, 0)
     const remainingValue = remainingUnits > 0 ? remainingUnits * avgBuyPrice : 0
 
     // Per-source quantity/price split — lets the UI explain a blended avgBuyPrice

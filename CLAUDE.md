@@ -68,7 +68,7 @@ NEPSE capital gain tax calculator and portfolio tracker for the Nepal Stock Exch
 │   ├── lib/
 │   │   ├── auth.ts                 # BetterAuth server config (Prisma adapter, Google OAuth)
 │   │   ├── auth-client.ts          # BetterAuth client (signIn, signOut, useSession)
-│   │   ├── cost-basis.ts           # Pure getWeightedAverageCost() — weighted avg buy cost per unit
+│   │   ├── cost-basis.ts           # Pure getWeightedAverageCost() — chronological moving-average buy cost per unit (see Prompt 15)
 │   │   ├── meroshare-api.ts        # MeroShare/CDSC API client — server-side login + browser-side holdings fetch (see below)
 │   │   ├── nepse-calc.ts           # Pure calculateCharges() + formatNPR() — works on client and server; reads NEXT_PUBLIC_* env vars
 │   │   ├── pl-summary.ts           # Pure calcPortfolioPL() + calcGroupPL() — P/L aggregation helpers
@@ -552,7 +552,7 @@ const avg = getWeightedAverageCost(buyTransactions, "NABIL")
 // returns total cost (qty × price + broker + DP + SEBON) / total qty; 0 if no buys
 ```
 
-**`getWeightedAverageCost(transactions, shareCode): number`** — filters the input array to BUY rows for `shareCode`, sums `qty × pricePerUnit + brokerCommission + dpCharge + sebon` across all lots, divides by total quantity. Called by `addTransaction` / `updateTransaction` before every SELL save to compute the authoritative CGT cost basis.
+**`getWeightedAverageCost(transactions, shareCode): number`** — replays BUY **and** SELL rows for `shareCode` in chronological order (moving-average method, same as nepsealpha's WACC calculator): a BUY blends `qty × pricePerUnit + brokerCommission + dpCharge + sebon` into the running average, a SELL reduces held quantity without changing the average, and the average resets to `0` once quantity hits `0` (see [WACC Cost-Basis Reset Fix](#wacc-cost-basis-reset-fix-added-in-prompt-15) — it used to be BUY-only and blended in fully-exited lots). Called by `addTransaction` / `updateTransaction` before every SELL save to compute the authoritative CGT cost basis.
 
 ### `src/actions/transaction.ts` — server actions
 
@@ -780,8 +780,8 @@ New **Source** column (between Type and Code). Only populated for BUY rows:
 ### `avgBuyCostPerUnit` — weighted average cost basis
 
 `avgBuyCostPerUnit Float?` stored on SELL Transaction rows. Computed at save time by `addTransaction` / `updateTransaction`:
-1. Fetch all existing BUY rows for that `shareCode` in the portfolio
-2. `getWeightedAverageCost(buys, shareCode)` → total cost (incl. all fees) ÷ total qty
+1. Fetch all existing BUY **and SELL** rows for that `shareCode` in the portfolio (see [WACC Cost-Basis Reset Fix, Prompt 15](#wacc-cost-basis-reset-fix-added-in-prompt-15) — BUY-only was the original/buggy version)
+2. `getWeightedAverageCost(history, shareCode)` → chronological moving average (incl. all fees), reset to `0` on full disposal
 3. Stored on the SELL row; used as the CGT cost basis in `calculateCharges`
 
 This ensures SELL CGT reflects the true all-in cost of the shares (including IPO fees, broker, DP, SEBON) rather than the raw purchase price entered by the user.
@@ -875,8 +875,8 @@ Groups all transactions by `shareCode`. For each stock:
 - `totalProceeds` — sum of `netAmount` for SELL rows
 - `totalTaxPaid` — sum of `capitalGainTax` for SELL rows
 - `avgBuyPrice` — **(added in Prompt 12)** `totalInvested ÷ totalBought` — weighted avg raw price actually paid, no fees. This is the "actual price" the user pays, as distinct from `avgBuyCost` below.
-- `avgBuyCost` — via `getWeightedAverageCost` (includes all buy-side fees) — the CGT cost basis, always ≥ `avgBuyPrice`
-- `realisedPL` = `totalProceeds - totalSold × avgBuyCost`; `0` if no sells
+- `avgBuyCost` — **(changed in Prompt 15)** via `getWeightedAverageCost(buys + sells, shareCode)` (chronological moving average, includes all buy-side fees) — the CGT cost basis of the *currently held* remaining units, always ≥ `avgBuyPrice`. Passing buys only (pre-Prompt 15) blended in the price of lots already fully sold off — see [WACC Cost-Basis Reset Fix](#wacc-cost-basis-reset-fix-added-in-prompt-15).
+- `realisedPL` — **(changed in Prompt 15)** sum over SELL rows of `netAmount - (avgBuyCostPerUnit ?? buyPricePerUnit ?? pricePerUnit) × quantity` — each sale's own stored cost basis, not `totalSold × avgBuyCost` (the old formula wrongly reused the *current* avgBuyCost — which can change after a later re-buy — against sales that happened under a different cost basis); `0` if no sells
 - `remainingValue` — **(added in Prompt 12)** `remainingUnits × avgBuyPrice`; `0` if fully sold. Raw capital still tied up in an open position.
 - `sources` — `TransactionSource[]` from BUY rows only (all 10 enum values possible, not just `PRIMARY | SECONDARY`)
 
@@ -1205,3 +1205,60 @@ Clicking "Calculate Sale" toggles an inline `<TableRow>` (via the same `Fragment
 ### CGT rate labels must read from env, never be hardcoded
 
 While building this, found `SellDialog.tsx`'s `cgtLabel` had the short/long-term percentages hardcoded as literal text ("7.5%", "5.0%") — these had drifted from the actual `.env.local` values (now 10% / 7.5%, changed at some point without this label being updated) and were silently showing the wrong rate to the user. Fixed by computing the label from `process.env.NEXT_PUBLIC_CGT_SHORT_TERM`/`LONG_TERM` at render time instead of a literal string. `WaccTable.tsx`'s own `cgtLabel` was written from the start as `"short-term"`/`"long-term"` with no percentage in the text at all, specifically to avoid the same drift. **Do not hardcode a CGT/broker/SEBON percentage as display text anywhere** — always compute it from the `NEXT_PUBLIC_*` env var, or omit the number from the label entirely, since NEPSE changes these rates independently of any code change and nothing else re-validates that literal strings still match `.env.local`.
+
+---
+
+## WACC Cost-Basis Reset Fix (added in Prompt 15)
+
+### Bug: re-buying a fully-sold stock blended in the old lot's price
+
+Reported as "WACC price is wrong when I buy a stock again after previously selling it." Root cause: `getWeightedAverageCost` (`src/lib/cost-basis.ts`) took a BUY-only transaction array and returned a flat average — `sum(qty × price + fees) ÷ sum(qty)` — across **every BUY ever recorded**, with no awareness of SELLs in between. So Buy 100 @ 1000, Sell all 100, Buy 100 @ 2000 produced an "avg cost" of ~1500 for the new 100-unit holding, instead of ~2000 — silently understating the CGT cost basis (and thus overstating capital gain and tax) on any future sale of the re-bought lot, and showing the wrong "Avg Cost"/"WACC" figure on the Holdings and WACC tabs.
+
+### Fix: chronological moving-average replay, matching nepsealpha's calculator
+
+`getWeightedAverageCost(transactions, shareCode)` now takes **both BUY and SELL** rows, sorts them by `transactionDate` ascending, and replays them:
+
+```ts
+let qty = 0
+let wacc = 0
+for (const t of rows) {
+  if (t.type === "BUY") {
+    const cost = t.quantity * t.pricePerUnit + t.brokerCommission + t.dpCharge + t.sebon
+    const newQty = qty + t.quantity
+    wacc = newQty > 0 ? (qty * wacc + cost) / newQty : 0
+    qty = newQty
+  } else {
+    qty -= t.quantity
+    if (qty <= 0) { qty = 0; wacc = 0 }  // fully exited — next BUY starts a fresh cost basis
+  }
+}
+```
+
+A SELL reduces `qty` but never changes `wacc`; a BUY blends its cost into whatever `wacc` currently is (which is `0` when `qty` is `0`, so a rebuy after a full exit is unaffected by the prior lot). This is the same moving-average method https://nepsealpha.com/weighted-average-calculator uses, so results should match it for an equivalent transaction history (nepsealpha's calculator doesn't roll in broker/DP/SEBON fees the way this app's CGT-purposed WACC does, so expect the two to agree on quantity/price but not necessarily on the fee-inclusive total unless fees are excluded for the comparison).
+
+**Two call sites had to change what they fetch/pass, not just the function body:**
+- `computeAvgBuyCost` in `src/actions/transaction.ts` — previously queried `where: { type: "BUY", ... }`; now queries the shareCode's full history (both types) including `transactionDate`, so `addTransaction`/`updateTransaction` can compute the correct post-reset cost basis before saving a new SELL.
+- `calcStockSummaries` in `src/lib/stock-summary.ts` — `avgBuyCost` is now `getWeightedAverageCost([...buys, ...sells], shareCode)` instead of `getWeightedAverageCost(buys, shareCode)`.
+
+`StockBreakdownTable`, `WaccTable`, and `SellDialog` needed no changes — they all read `avgBuyCost`/`avgBuyCostPerUnit` off values computed upstream (`StockSummary` or the stored `Transaction` row), so they picked up the fix automatically.
+
+### Follow-on fix: `realisedPL` was using the *current* avgBuyCost against *past* sales
+
+Once `avgBuyCost` correctly reset after a full disposal, `calcStockSummaries`'s old `realisedPL = totalProceeds - totalSold × avgBuyCost` became *more* wrong for any stock with more than one buy/sell round-trip: it multiplied the lifetime total sold quantity by whatever the average cost happens to be *right now*, even though an earlier sale's real cost basis (locked in and stored on that SELL row's `avgBuyCostPerUnit` at the time it was saved) may have been completely different. Fixed to sum per-sale instead:
+
+```ts
+const realisedPL = sells.reduce((sum, t) => {
+  const costBasis = t.avgBuyCostPerUnit ?? t.buyPricePerUnit ?? t.pricePerUnit
+  return sum + (t.netAmount - costBasis * t.quantity)
+}, 0)
+```
+
+This mirrors how `pl-summary.ts`'s `netPL`/`grossPL` were already computed per-SELL-row since the Prompt 12 fix — `stock-summary.ts`'s `realisedPL` was the one remaining place still doing a lifetime-blended calculation instead of trusting each sale's own stored cost basis. `TxForStockSummary` gained two optional fields, `avgBuyCostPerUnit` and `buyPricePerUnit`, to support this — both were already present on every real caller's data (`TransactionRow`, and the dashboard page's per-transaction select), so no page-level query changes were needed.
+
+### `avgBuyPrice` / `remainingValue` were deliberately left alone
+
+`avgBuyPrice` (raw price paid, no fees, flat average across *all* buys with no sell-aware reset) and `remainingValue` (`remainingUnits × avgBuyPrice`) still use the old flat-average logic. This is intentional, not an oversight: `avgBuyPrice` is documented (Prompt 12) as "the actual price" — a distinct, deliberately-unadjusted metric from the CGT-relevant `avgBuyCost` — and changing its semantics here would contradict that. If a future report describes `avgBuyPrice`/`remainingValue` looking wrong after a round-trip re-buy, that's a separate, not-yet-made decision about whether that metric should also become reset-aware — don't assume it's covered by this fix.
+
+### Existing stored SELL rows are not retroactively corrected
+
+This fix changes the *live* calculation (Holdings tab, WACC tab, and any *new* SELL saved from now on). A SELL transaction saved *before* this fix, whose `avgBuyCostPerUnit` was computed with the old BUY-only formula, keeps that stale stored value — it is a snapshot taken at save time, not recomputed on read. The only way to correct an already-saved SELL's cost basis is to edit and re-save it (which reruns `computeAvgBuyCost` with the fixed logic).
