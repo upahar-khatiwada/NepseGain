@@ -189,11 +189,11 @@ export function AddTransactionDialog({ portfolioId }: { portfolioId: string }) {
                       <FormItem>
                         <FormLabel>Source</FormLabel>
                         <FormControl>
-                          <div className="flex gap-2">
+                          <div className="grid grid-cols-2 gap-2">
                             <button
                               type="button"
                               onClick={() => field.onChange("SECONDARY")}
-                              className={`flex-1 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer ${
+                              className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer ${
                                 field.value === "SECONDARY"
                                   ? "border-blue-500 bg-blue-500/10 text-blue-700 dark:text-blue-400"
                                   : "border-input bg-background text-muted-foreground hover:bg-muted"
@@ -204,7 +204,7 @@ export function AddTransactionDialog({ portfolioId }: { portfolioId: string }) {
                             <button
                               type="button"
                               onClick={() => field.onChange("PRIMARY")}
-                              className={`flex-1 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer ${
+                              className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer ${
                                 field.value === "PRIMARY"
                                   ? "border-purple-500 bg-purple-500/10 text-purple-700 dark:text-purple-400"
                                   : "border-input bg-background text-muted-foreground hover:bg-muted"
@@ -214,11 +214,22 @@ export function AddTransactionDialog({ portfolioId }: { portfolioId: string }) {
                             </button>
                             <button
                               type="button"
+                              onClick={() => field.onChange("RIGHT")}
+                              className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer ${
+                                field.value === "RIGHT"
+                                  ? "border-indigo-500 bg-indigo-500/10 text-indigo-700 dark:text-indigo-400"
+                                  : "border-input bg-background text-muted-foreground hover:bg-muted"
+                              }`}
+                            >
+                              Rights Issue
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => {
                                 field.onChange("BONUS")
                                 form.setValue("pricePerUnit", 0)
                               }}
-                              className={`flex-1 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer ${
+                              className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer ${
                                 field.value === "BONUS"
                                   ? "border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
                                   : "border-input bg-background text-muted-foreground hover:bg-muted"
@@ -234,6 +245,15 @@ export function AddTransactionDialog({ portfolioId }: { portfolioId: string }) {
                             <span>
                               IPO shares are allotted at issue price. No broker commission, DP
                               charge, or SEBON fee applies on primary market allotment.
+                            </span>
+                          </div>
+                        )}
+                        {field.value === "RIGHT" && (
+                          <div className="flex gap-2 rounded-lg border border-indigo-200 bg-indigo-50/50 p-2.5 text-xs text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950/30 dark:text-indigo-400">
+                            <InfoIcon className="size-3.5 mt-0.5 shrink-0" />
+                            <span>
+                              Rights shares are allotted at issue price. No broker commission,
+                              DP charge, or SEBON fee applies on rights allotment.
                             </span>
                           </div>
                         )}
