@@ -79,8 +79,8 @@ All fee constants live in `.env.local` as `NEXT_PUBLIC_*` variables. They are sa
 
 | Variable | Default | Description |
 |---|---|---|
-| `NEXT_PUBLIC_CGT_SHORT_TERM` | `0.075` | 7.5% CGT for shares held ≤ 365 days |
-| `NEXT_PUBLIC_CGT_LONG_TERM` | `0.05` | 5.0% CGT for shares held > 365 days |
+| `NEXT_PUBLIC_CGT_SHORT_TERM` | `0.05` | 5% CGT for shares held ≤ 365 days |
+| `NEXT_PUBLIC_CGT_LONG_TERM` | `0.0375` | 3.75% CGT for shares held > 365 days |
 | `NEXT_PUBLIC_DP_CHARGE` | `25` | NPR 25 flat DP charge per transaction |
 | `NEXT_PUBLIC_SEBON_RATE` | `0.00015` | 0.015% SEBON fee on transaction value |
 | `NEXT_PUBLIC_BROKER_RATE_UPTO_50K` | `0.004` | 0.40% broker commission up to NPR 50,000 |
